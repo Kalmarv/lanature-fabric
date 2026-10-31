@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import xyz.ivyhq.lanature.client.entity.EntityDefinitions;
 import xyz.ivyhq.lanature.client.entity.EntityScripts;
 import xyz.ivyhq.lanature.client.environment.BiomeLooks;
+import xyz.ivyhq.lanature.client.model.EntityMaterial;
 import xyz.ivyhq.lanature.client.particle.Material;
 import xyz.ivyhq.lanature.client.particle.ParticleLoader;
 import xyz.ivyhq.lanature.client.settings.PackSettings;
@@ -64,8 +65,14 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 		Map<String, Set<BlockState>> blockNames = blockNames(json(rm, ROOT + "/block_names.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()));
 		List<JsonObject> particleFiles = new ArrayList<>(files(rm, ROOT + "/vanilla/particles"));
 		particleFiles.addAll(files(rm, ROOT + "/particles"));
-		EntityDefinitions entities = EntityDefinitions.load(files(rm, ROOT + "/entity"), files(rm, ROOT + "/animation_controllers"),
-			files(rm, ROOT + "/animations"), files(rm, ROOT + "/models"));
+		// vanilla's entity materials, the port's additions for mobs newer than them, then the pack's over both
+		Map<String, EntityMaterial> entityMaterials = EntityMaterial.table(
+			json(rm, ROOT + "/vanilla/materials/entity.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
+			json(rm, ROOT + "/engine/entity.material.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
+			json(rm, ROOT + "/materials/entity.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()));
+		// the vanilla Bedrock files the pack relies on, then the pack's own over them
+		EntityDefinitions entities = EntityDefinitions.load(entityFiles(rm, ROOT + "/vanilla/"), entityFiles(rm, ROOT + "/"), entityMaterials,
+			json(rm, ROOT + "/entity_scales.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()));
 		// the engine's own particle materials, then the pack's materials over them
 		Map<String, Material> materials = Material.table(
 			json(rm, ROOT + "/engine/particles.material.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
@@ -97,9 +104,11 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 		EntityScripts.get().load(loaded.entities());
 		ClientLevel level = Minecraft.getInstance().level;
 		BiomeLooks.bind(loaded.looks(), level == null ? null : level.registryAccess());
-		LOGGER.info("Loaded {} Bedrock particle effects, {} particle triggers, {} client entities ({} controllers, {} animations), {} pack settings, "
-			+ "{} biome looks", loaded.particles().effects().size(), loaded.particles().triggers().size(), loaded.entities().entities().size(),
-			loaded.entities().controllers().size(), loaded.entities().animations().size(), PackSettings.get().all().size(), loaded.looks().byJavaId().size());
+		LOGGER.info("Loaded {} Bedrock particle effects, {} particle triggers, {} client entities ({} modelled: {}; {} controllers, {} animations, "
+			+ "{} render controllers), {} pack settings, {} biome looks", loaded.particles().effects().size(), loaded.particles().triggers().size(),
+			loaded.entities().entities().size(), loaded.entities().modelled().size(), loaded.entities().modelled(), loaded.entities().controllers().size(),
+			loaded.entities().animations().size(), loaded.entities().renderControllers().size(), PackSettings.get().all().size(),
+			loaded.looks().byJavaId().size());
 	}
 
 	/** Bedrock block name → the Java block states listed for it ({@code minecraft:water[level=0]} or a whole block). */
@@ -139,6 +148,11 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 
 	private static <T extends Comparable<T>> String name(Property<T> p, BlockState s) {
 		return p.getName(s.getValue(p));
+	}
+
+	private static EntityDefinitions.Files entityFiles(ResourceManager rm, String root) {
+		return new EntityDefinitions.Files(files(rm, root + "entity"), files(rm, root + "animation_controllers"), files(rm, root + "animations"),
+			files(rm, root + "models"), files(rm, root + "render_controllers"));
 	}
 
 	/** Every JSON object under a folder, in path order (a sub-folder's files sort among the rest). */

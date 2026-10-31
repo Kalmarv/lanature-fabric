@@ -487,8 +487,9 @@ public abstract class Node {
 				if (list.isEmpty()) {
 					return null;
 				}
-				int i = (int) index.eval(s);
-				return list.get(Math.floorMod(i, list.size()));
+				// Bedrock: C-style cast, negative indices clamp to 0, larger ones wrap
+				int i = Math.max(0, (int) index.eval(s));
+				return list.get(i % list.size());
 			}
 			return r;
 		}

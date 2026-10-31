@@ -23,18 +23,20 @@ public final class RuntimeExporter {
 		"render_controllers/", "models/", "attachables/", "fogs/", "biomes/");
 	/** Single files: pack path → path under {@code bedrock/}. */
 	private static final Map<String, String> FILES = Map.of("sounds.json", "sounds.json", "biomes_client.json", "biomes_client.json",
-		"manifest.json", "manifest.json", "materials/particles.material", "materials/particles.json");
+		"manifest.json", "manifest.json", "materials/particles.material", "materials/particles.json", "materials/entity.material", "materials/entity.json");
 
 	private final BedrockPack pack;
 	private final TextureExporter textures;
+	private final BindPoses bindPoses;
 	private final Path assets;
 	private final Report report;
 	/** Bedrock block names the particles test for ({@code particle_expire_if_[not_]in_blocks}). */
 	private final Set<String> blockNames = new java.util.TreeSet<>();
 
-	public RuntimeExporter(BedrockPack pack, TextureExporter textures, Path assets, Report report) {
+	public RuntimeExporter(BedrockPack pack, TextureExporter textures, BindPoses bindPoses, Path assets, Report report) {
 		this.pack = pack;
 		this.textures = textures;
+		this.bindPoses = bindPoses;
 		this.assets = assets;
 		this.report = report;
 	}
@@ -57,6 +59,7 @@ public final class RuntimeExporter {
 		}
 		vanillaParticles(particleIds, definitions);
 		vanillaFogs(definitions);
+		int entityTextures = entityModels(definitions);
 		int textured = 0;
 		for (Map.Entry<String, JsonElement> e : definitions.entrySet()) {
 			if (e.getKey().startsWith("particles/") || e.getKey().startsWith("vanilla/particles/")) {
@@ -79,7 +82,18 @@ public final class RuntimeExporter {
 			}
 		}
 		report.info("runtime", files + " Bedrock definitions exported, " + particleIds.size() + " pack particle effects, "
-			+ textured + " effects textured");
+			+ textured + " effects textured, " + entityTextures + " entity textures");
+	}
+
+	/**
+	 * Vanilla Bedrock's entity materials, from the last {@code entity.material} Mojang shipped in a resource pack (the
+	 * 1.16.100 beta; materials are compiled into the game since), as {@code bedrock/vanilla/materials/entity.json}: the
+	 * base the runtime resolves the pack's materials and its own additions for newer mobs on.
+	 */
+	public static void vanillaEntityMaterials(Path file, Path assets, Report report) throws IOException {
+		JsonObject materials = Json.parse(java.nio.file.Files.readAllBytes(file)).getAsJsonObject();
+		Json.writeCompact(assets.resolve("lanature/bedrock/vanilla/materials/entity.json"), materials);
+		report.info("runtime", "vanilla entity materials: " + (materials.getAsJsonObject("materials").size() - 1) + " from " + file.getFileName());
 	}
 
 	public Set<String> blockNames() {
@@ -132,6 +146,164 @@ public final class RuntimeExporter {
 				continue;
 			}
 			definitions.put("vanilla/" + TextureExporter.sanitize(path), Json.parse(pack.vanilla.get(path)));
+		}
+	}
+
+	/** Where each kind of entity resource is defined, and the key its files list identifiers under. */
+	private record Kind(String folder, String section) {
+	}
+
+	private static final Kind GEOMETRY = new Kind("models/", null);
+	private static final Kind RENDER_CONTROLLERS = new Kind("render_controllers/", "render_controllers");
+	private static final Kind ANIMATIONS = new Kind("animations/", "animations");
+	private static final Kind CONTROLLERS = new Kind("animation_controllers/", "animation_controllers");
+
+	/**
+	 * What the pack's client entities need to draw their models: the vanilla geometry (with the parents legacy
+	 * geometry inherits), render controllers, animations and animation controllers they name but the pack does not
+	 * define, under {@code vanilla/}, and their textures, exported as standalone textures with each entity's
+	 * {@code textures} entry rewritten to the Java texture id. Returns the number of textures exported.
+	 */
+	private int entityModels(Map<String, JsonElement> definitions) throws IOException {
+		Map<Kind, Set<String>> wanted = new LinkedHashMap<>();
+		for (Kind k : List.of(GEOMETRY, RENDER_CONTROLLERS, ANIMATIONS, CONTROLLERS)) {
+			wanted.put(k, new LinkedHashSet<>());
+		}
+		int exportedTextures = 0;
+		for (Map.Entry<String, JsonElement> e : definitions.entrySet()) {
+			if (!e.getKey().startsWith("entity/")) {
+				continue;
+			}
+			JsonObject root = e.getValue().getAsJsonObject().getAsJsonObject("minecraft:client_entity");
+			JsonObject desc = root == null ? null : root.getAsJsonObject("description");
+			if (desc == null) {
+				continue;
+			}
+			strings(desc.get("geometry"), wanted.get(GEOMETRY));
+			renderControllers(desc.get("render_controllers"), wanted.get(RENDER_CONTROLLERS));
+			// an animations entry names either an animation or a controller
+			strings(desc.get("animations"), wanted.get(ANIMATIONS));
+			strings(desc.get("animations"), wanted.get(CONTROLLERS));
+			JsonObject tex = desc.getAsJsonObject("textures");
+			if (tex != null) {
+				for (Map.Entry<String, JsonElement> t : tex.entrySet()) {
+					String id = textures.export(t.getValue().getAsString(), "entity/bedrock");
+					if (id != null) {
+						int colon = id.indexOf(':');
+						t.setValue(new com.google.gson.JsonPrimitive(id.substring(0, colon) + ":textures/" + id.substring(colon + 1) + ".png"));
+						exportedTextures++;
+					}
+				}
+			}
+		}
+		for (Map.Entry<Kind, Set<String>> w : wanted.entrySet()) {
+			Kind kind = w.getKey();
+			Set<String> defined = new HashSet<>();
+			definitions.forEach((path, json) -> {
+				if (path.startsWith(kind.folder()) || path.startsWith("vanilla/" + kind.folder())) {
+					defined.addAll(identifiers(kind, json));
+				}
+			});
+			Map<String, String> vanilla = new HashMap<>();
+			Map<String, JsonElement> vanillaJson = new HashMap<>();
+			for (String path : pack.vanilla.paths(kind.folder())) {
+				if (!path.endsWith(".json")) {
+					continue;
+				}
+				JsonElement json;
+				try {
+					json = Json.parse(pack.vanilla.get(path));
+				} catch (RuntimeException ex) {
+					report.warn("runtime", "vanilla " + path + ": " + ex.getMessage());
+					continue;
+				}
+				vanillaJson.put(path, json);
+				for (String id : identifiers(kind, json)) {
+					vanilla.putIfAbsent(id, path);
+				}
+			}
+			java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>(w.getValue());
+			while (!queue.isEmpty()) {
+				String id = queue.poll();
+				if (defined.contains(id)) {
+					continue;
+				}
+				String path = vanilla.get(id);
+				if (path == null) {
+					if (kind == GEOMETRY || kind == RENDER_CONTROLLERS) {
+						report.warn("runtime", "entities name undefined " + id);
+					}
+					continue;
+				}
+				JsonElement json = vanillaJson.get(path);
+				definitions.put("vanilla/" + TextureExporter.sanitize(path), json);
+				defined.addAll(identifiers(kind, json));
+				if (kind == GEOMETRY) {
+					bindPoses.restore(path, json);
+					queue.addAll(geometryParents(json));
+				}
+			}
+		}
+		return exportedTextures;
+	}
+
+	/** The identifiers a file of the kind defines (legacy geometry keys without their {@code :parent}). */
+	private static Set<String> identifiers(Kind kind, JsonElement json) {
+		Set<String> out = new LinkedHashSet<>();
+		if (!json.isJsonObject()) {
+			return out;
+		}
+		JsonObject o = json.getAsJsonObject();
+		if (kind == GEOMETRY) {
+			if (o.has("minecraft:geometry") && o.get("minecraft:geometry").isJsonArray()) {
+				o.getAsJsonArray("minecraft:geometry").forEach(g -> out.add(g.getAsJsonObject().getAsJsonObject("description").get("identifier").getAsString()));
+			}
+			o.keySet().forEach(k -> {
+				if (k.startsWith("geometry.")) {
+					out.add(k.split(":", 2)[0]);
+				}
+			});
+		} else if (o.has(kind.section()) && o.get(kind.section()).isJsonObject()) {
+			out.addAll(o.getAsJsonObject(kind.section()).keySet());
+		}
+		return out;
+	}
+
+	/** The geometries legacy geometry keys inherit from ({@code geometry.a:geometry.b}). */
+	private static Set<String> geometryParents(JsonElement json) {
+		Set<String> out = new LinkedHashSet<>();
+		if (json.isJsonObject()) {
+			json.getAsJsonObject().keySet().forEach(k -> {
+				String[] parts = k.split(":", 2);
+				if (parts[0].startsWith("geometry.") && parts.length == 2) {
+					out.add(parts[1]);
+				}
+			});
+		}
+		return out;
+	}
+
+	private static void strings(JsonElement e, Set<String> out) {
+		if (e != null && e.isJsonObject()) {
+			e.getAsJsonObject().entrySet().forEach(x -> {
+				if (x.getValue().isJsonPrimitive()) {
+					out.add(x.getValue().getAsString());
+				}
+			});
+		}
+	}
+
+	/** Render controller ids: plain strings, or one-key objects whose value is the condition. */
+	private static void renderControllers(JsonElement e, Set<String> out) {
+		if (e == null || !e.isJsonArray()) {
+			return;
+		}
+		for (JsonElement x : e.getAsJsonArray()) {
+			if (x.isJsonPrimitive()) {
+				out.add(x.getAsString());
+			} else if (x.isJsonObject()) {
+				out.addAll(x.getAsJsonObject().keySet());
+			}
 		}
 	}
 

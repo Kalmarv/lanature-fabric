@@ -63,9 +63,12 @@ public final class Main {
 			resource("blockshapes.json"), resource("legacy_data.json"), assets, report).run();
 
 		new PathOverrides(pack, identity, java, assets, report).run();
-		RuntimeExporter runtime = new RuntimeExporter(pack, textures, assets, report);
+		BindPoses bindPoses = new BindPoses(FileTree.read(refs.resolve("bedrock-samples-1.21.0.3")).sub("resource_pack/models"), report);
+		RuntimeExporter runtime = new RuntimeExporter(pack, textures, bindPoses, assets, report);
 		runtime.run();
+		RuntimeExporter.vanillaEntityMaterials(refs.resolve("bridge-vanilla/static/vanilla/RP/materials/entity.material"), assets, report);
 		BlockNames.run(geyser, runtime.blockNames(), assets, report);
+		EntityScales.run(pack, samples.sub("behavior_pack/entities"), assets, report);
 		new SoundConverter(pack, json(refs.resolve("geyser-mappings/sounds.json")),
 			json(refs.resolve("pack-converter/converter/src/main/resources/mappings/sounds.json")),
 			SoundConverter.javaSounds(json(Path.of(require(opts, "--asset-index")))), assets, report).run();

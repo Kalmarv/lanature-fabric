@@ -1,0 +1,16 @@
+{
+	"//": "Bedrock entity materials newer than the last vanilla entity.material Mojang shipped in a resource pack (1.16.100, exported by the converter as bedrock/vanilla/materials/entity.json, which these build on), inferred: each is the vanilla material its look needs. The two drawn with a render controller color (the warden's pulsing layers, the spectator's 0.3 alpha) also get USE_COLOR_MASK, the one define through which the 1.16 entity shader applies that colour's alpha.",
+	"materials": {
+		"version": "1.0.0",
+		"entity_alphatest_one_sided:entity": { "+defines": [ "ALPHA_TEST" ] },
+		"allay:entity_alphatest": {},
+		"chicken_cold:entity_alphatest": {},
+		"copper_golem:entity_alphatest": {},
+		"copper_golem_eyes:entity_emissive_alpha": {},
+		"copper_golem_flower:entity_alphatest": {},
+		"cushion:entity_alphatest": {},
+		"player_spectator:entity_alphablend": { "+defines": [ "USE_COLOR_MASK" ] },
+		"warden:entity_alphatest": {},
+		"warden_bioluminescent_layer:entity_alphablend": { "+defines": [ "USE_EMISSIVE", "USE_COLOR_MASK" ] }
+	}
+}

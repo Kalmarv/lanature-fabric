@@ -6,8 +6,15 @@
 		"AtmosphericFogEnvironmentMixin",
 		"BiomeMixin",
 		"ClientLevelMixin",
+		"EndCrystalRendererMixin",
+		"EntityRenderDispatcherMixin",
+		"EntityRendererMixin",
 		"EnvironmentAttributeSystemBuilderAccessor",
-		"ParticleEngineMixin"
+		"ExperienceOrbRendererMixin",
+		"FishingHookRendererMixin",
+		"LivingEntityRendererMixin",
+		"ParticleEngineMixin",
+		"ThrownItemRendererMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

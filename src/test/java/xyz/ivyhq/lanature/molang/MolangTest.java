@@ -29,6 +29,18 @@ class MolangTest {
 	}
 
 	@Test
+	void resourceArraysClampNegativeAndWrapLargeIndices() {
+		Scope s = scope();
+		s.resources = (kind, name) -> kind.equals("array") ? List.of("texture.a", "texture.b", "texture.c") : kind + "." + name;
+		Node n = Molang.parseStrict("array.skins[v.i]");
+		s.variables.set("i", -2.0);
+		assertEquals("texture.a", n.value(s));
+		s.variables.set("i", 4.7);
+		assertEquals("texture.b", n.value(s));
+		assertEquals("geometry.baby", Molang.parseStrict("v.i > 1 ? geometry.baby : array.skins[0]").value(s));
+	}
+
+	@Test
 	void conditionalForms() {
 		Scope s = scope();
 		assertEquals(2, eval("0 ? 1 : 2", s));

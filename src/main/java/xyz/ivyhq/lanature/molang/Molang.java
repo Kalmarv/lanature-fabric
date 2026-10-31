@@ -66,6 +66,14 @@ public final class Molang {
 		return v;
 	}
 
+	/** Evaluates to a value of any kind: a number, a string, a struct or a resource such as a texture. */
+	public static Object value(Node n, Scope s) {
+		Object v = n.value(s);
+		s.flow = Scope.Flow.NONE;
+		s.returnValue = null;
+		return v;
+	}
+
 	public static boolean isConstant(Node n) {
 		return n instanceof Node.Constant;
 	}

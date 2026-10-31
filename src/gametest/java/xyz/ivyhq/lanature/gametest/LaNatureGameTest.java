@@ -40,12 +40,17 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			}
 			server.runCommand("setblock 0 99 -9 minecraft:campfire");
 			server.runCommand("fill 2 98 -10 4 98 -8 minecraft:water");
-			server.runCommand("tp @p 0.5 99 0.5 180 -15");
 			context.runOnClient(mc -> {
 				if (!mc.gui.hud.isHidden()) {
 					mc.gui.hud.toggle();
 				}
 			});
+			// LANATURE_GAMETEST=entities runs only the entity scene
+			if ("entities".equals(System.getenv("LANATURE_GAMETEST"))) {
+				entities(context, server, world);
+				return;
+			}
+			server.runCommand("tp @p 0.5 99 0.5 180 -15");
 			world.getConnection().waitForChunksRender();
 			context.waitTicks(100);
 			log(context, "after 5 s");
@@ -94,6 +99,189 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			}
 			fog(context, server, world);
 		}
+	}
+
+	/**
+	 * Modelled entities, still (no AI) in a row on a stone floor west of the first scene: chickens of each climate,
+	 * named breeds, a baby, then the pack's other remodelled mobs; seen from the front and from behind. A second row
+	 * behind the first camera holds what changes a model's pose or size: a sitting cat, a kitten, a large and a small
+	 * salmon.
+	 */
+	private static void entities(ClientGameTestContext context, TestServerContext server, TestSingleplayerContext world) {
+		server.runCommand("fill -62 98 -12 -24 98 4 minecraft:stone");
+		server.runCommand("fill -62 99 -12 -24 110 4 minecraft:air");
+		String[] chickens = {
+			"variant:\"minecraft:temperate\"", "variant:\"minecraft:warm\"", "variant:\"minecraft:cold\"", "CustomName:\"sculk\"",
+			"CustomName:\"Turkey\"", "CustomName:\"Duck\"", "Age:-24000",
+		};
+		for (int i = 0; i < chickens.length; i++) {
+			server.runCommand("summon minecraft:chicken " + (-58.5 + i * 1.5) + " 99 -4.5 {" + chickens[i] + ",NoAI:1b,Rotation:[0f,0f]}");
+		}
+		String[] others = {"fox", "cat", "parrot", "allay", "armor_stand", "copper_golem", "salmon", "cod", "pufferfish"};
+		server.runCommand("fill -30 98 -6 -25 98 -3 minecraft:water");
+		for (int i = 0; i < others.length; i++) {
+			server.runCommand("summon minecraft:" + others[i] + " " + (-44.5 + i * 2) + " 99 -4.5 {NoAI:1b,Rotation:[0f,0f]}");
+		}
+		// the last a tame cat (an owner) with a blue collar, which Bedrock dyes through the cat's colour-mask material
+		String[] posed = {"cat {Sitting:1b", "cat {Age:-24000", "salmon {type:\"large\"", "salmon {type:\"small\"", "cat {Owner:[I;1,2,3,4],CollarColor:11b"};
+		for (int i = 0; i < posed.length; i++) {
+			server.runCommand("summon minecraft:" + posed[i].replace(" {", " " + (-42.5 + i * 2) + " 99 1.5 {") + ",NoAI:1b,Rotation:[0f,0f]}");
+		}
+		server.runCommand("tp @p -54 100 -0.5 180 25");
+		world.getConnection().waitForChunksRender();
+		context.waitTicks(40);
+		String state = context.computeOnClient(mc -> {
+			StringBuilder sb = new StringBuilder();
+			for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+				if (e != mc.player) {
+					sb.append("\n  ").append(e instanceof net.minecraft.world.entity.LivingEntity le ? "body " + le.yBodyRot + " head " + le.yHeadRot + " " : "")
+						.append(e.getType().builtInRegistryHolder().getRegisteredName()).append(e.hasCustomName() ? " \"" + e.getCustomName().getString() + "\"" : "")
+						.append(": ").append(describe(EntityScripts.get().model(e, 1))).append("\n    playing ").append(EntityScripts.get().describePlaying(e));
+				}
+			}
+			return sb.toString();
+		});
+		LOGGER.info("Entity models: {}", state);
+		context.takeScreenshot("lanature-entities-chickens");
+		context.runOnClient(mc -> EntityScripts.get().setModels(false));
+		context.waitTicks(2);
+		context.takeScreenshot("lanature-entities-chickens-java");
+		context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		server.runCommand("tp @p -54 100 -8.5 0 25");
+		context.waitTicks(10);
+		context.takeScreenshot("lanature-entities-chickens-back");
+		server.runCommand("tp @p -40 100.5 -0.5 180 25");
+		context.waitTicks(10);
+		context.takeScreenshot("lanature-entities-others");
+		context.runOnClient(mc -> EntityScripts.get().setModels(false));
+		context.waitTicks(2);
+		context.takeScreenshot("lanature-entities-others-java");
+		context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		// close-ups, Bedrock then Java: the armor stand from the front, the fox and the cat from the side, the copper golem
+		// from the front, the second row from behind it
+		String[][] closeUps = {{"armor_stand", "-36.5 99.5 -1.5 180 10"}, {"fox", "-41.5 99.2 -4.5 90 10"}, {"cat", "-39.5 99.2 -4.5 90 10"},
+			{"copper_golem", "-34.5 99.6 -2 180 10"}, {"tame_cat", "-32 99.4 1.5 90 15"},
+			{"posed", "-39.5 100.3 4.5 180 20"}};
+		for (String[] c : closeUps) {
+			server.runCommand("tp @p " + c[1]);
+			context.waitTicks(10);
+			context.takeScreenshot("lanature-entities-" + c[0]);
+			context.runOnClient(mc -> EntityScripts.get().setModels(false));
+			context.waitTicks(2);
+			context.takeScreenshot("lanature-entities-" + c[0] + "-java");
+			context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		}
+		// the hurt flash, through a USE_OVERLAY material: the fox struck, a tick later (its red lasts ten ticks)
+		server.runCommand("tp @p -41.5 99.2 -4.5 90 10");
+		context.waitTicks(10);
+		server.runCommand("damage @e[type=minecraft:fox,limit=1] 1");
+		context.waitTicks(2);
+		context.takeScreenshot("lanature-entities-fox-hurt");
+		context.runOnClient(mc -> EntityScripts.get().setModels(false));
+		context.waitTicks(25);
+		server.runCommand("damage @e[type=minecraft:fox,limit=1] 1");
+		context.waitTicks(2);
+		context.takeScreenshot("lanature-entities-fox-hurt-java");
+		context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		// the warden keeps Java's model (the pack changes only its scripts): its scripts' controllers, still, then a tick
+		// after a vibration (the event the server sends), which starts the shiver
+		server.runCommand("summon minecraft:warden -40.5 99 -10.5 {NoAI:1b,Rotation:[0f,0f]}");
+		context.waitTicks(30);
+		LOGGER.info("Warden still: {}", warden(context));
+		context.runOnClient(mc -> wardens(mc).forEach(w -> w.handleEntityEvent((byte) 61)));
+		context.waitTicks(1);
+		LOGGER.info("Warden after a vibration: {}", warden(context));
+		context.waitTicks(20);
+		LOGGER.info("Warden a second later: {}", warden(context));
+		// what is modelled but not living, in a row west of the second: experience orbs (a spectator draws no orbs to it),
+		// an end crystal, a pearl and two potions held in the air
+		server.runCommand("gamemode spectator @p");
+		String[] thrown = {
+			"experience_orb -56.5 99.3 1.5 {Value:1,NoGravity:1b}", "experience_orb -55 99.3 1.5 {Value:400,NoGravity:1b}",
+			"end_crystal -52.5 99 1.5 {ShowBottom:1b}", "ender_pearl -50 99.5 1.5 {NoGravity:1b}",
+			"splash_potion -48.5 99.5 1.5 {NoGravity:1b,Item:{id:\"minecraft:splash_potion\",count:1,components:{\"minecraft:potion_contents\":{potion:\"minecraft:swiftness\"}}}}",
+			"lingering_potion -47 99.5 1.5 {NoGravity:1b,Item:{id:\"minecraft:lingering_potion\",count:1,components:{\"minecraft:potion_contents\":{potion:\"minecraft:poison\"}}}}",
+		};
+		for (String t : thrown) {
+			server.runCommand("summon minecraft:" + t);
+		}
+		server.runCommand("tp @p -51.5 100.6 4.5 180 20");
+		context.waitTicks(20);
+		String thrownState = context.computeOnClient(mc -> {
+			StringBuilder sb = new StringBuilder();
+			for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+				if (!(e instanceof net.minecraft.world.entity.LivingEntity)) {
+					sb.append("\n  ").append(e.getType().builtInRegistryHolder().getRegisteredName()).append(": ").append(describe(EntityScripts.get().model(e, 1)))
+						.append("\n    playing ").append(EntityScripts.get().describePlaying(e));
+				}
+			}
+			return sb.toString();
+		});
+		LOGGER.info("Non-living models: {}", thrownState);
+		context.takeScreenshot("lanature-entities-thrown");
+		context.runOnClient(mc -> EntityScripts.get().setModels(false));
+		context.waitTicks(2);
+		context.takeScreenshot("lanature-entities-thrown-java");
+		context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		// the pack's vanilla orbs (a setting): one atlas texture, the frame picked by the render controller's uv_anim;
+		// Java's icons 0, 4 and 5
+		server.runCommand("summon minecraft:experience_orb -58 99.3 1.5 {Value:40,NoGravity:1b}");
+		server.runCommand("summon minecraft:experience_orb -59.5 99.3 1.5 {Value:80,NoGravity:1b}");
+		Object orbModel = context.computeOnClient(mc -> PackSettings.get().value("lnbc:xp_orb_model"));
+		context.runOnClient(mc -> PackSettings.get().set("lnbc:xp_orb_model", "vanilla"));
+		server.runCommand("tp @p -57.5 100.2 3.5 180 25");
+		context.waitTicks(10);
+		String orbs = context.computeOnClient(mc -> mc.level.getEntitiesOfClass(net.minecraft.world.entity.ExperienceOrb.class, mc.player.getBoundingBox().inflate(16))
+			.stream().map(o -> "icon " + o.getIcon() + ": " + describe(EntityScripts.get().model(o, 1))).toList().toString());
+		LOGGER.info("Vanilla orbs: {}", orbs);
+		context.takeScreenshot("lanature-entities-orbs-vanilla");
+		context.runOnClient(mc -> EntityScripts.get().setModels(false));
+		context.waitTicks(2);
+		context.takeScreenshot("lanature-entities-orbs-vanilla-java");
+		context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		context.runOnClient(mc -> PackSettings.get().set("lnbc:xp_orb_model", orbModel));
+		server.runCommand("gamemode creative @p");
+		// the bobber, cast into the pool (a bobber exists only on a fishing player's line)
+		server.runCommand("item replace entity @p weapon.mainhand with minecraft:fishing_rod");
+		server.runCommand("tp @p -27.5 99 0.5 180 35");
+		context.waitTicks(5);
+		context.getInput().pressKey(options -> options.keyUse);
+		context.waitTicks(40);
+		String hook = context.computeOnClient(mc -> mc.player.fishing == null ? "no bobber"
+			: describe(EntityScripts.get().model(mc.player.fishing, 1)) + "\n    playing " + EntityScripts.get().describePlaying(mc.player.fishing));
+		LOGGER.info("Bobber: {}", hook);
+		context.takeScreenshot("lanature-entities-bobber");
+		context.runOnClient(mc -> EntityScripts.get().setModels(false));
+		context.waitTicks(2);
+		context.takeScreenshot("lanature-entities-bobber-java");
+		context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		context.getInput().pressKey(options -> options.keyUse);
+		server.runCommand("item replace entity @p weapon.mainhand with minecraft:air");
+		server.runCommand("tp @p -30.5 100.5 -0.5 180 30");
+		context.waitTicks(10);
+		context.takeScreenshot("lanature-entities-fish");
+		server.runCommand("tp @p -40 100.5 -8.5 0 25");
+		context.waitTicks(10);
+		context.takeScreenshot("lanature-entities-others-back");
+	}
+
+	private static java.util.List<net.minecraft.world.entity.monster.warden.Warden> wardens(net.minecraft.client.Minecraft mc) {
+		return mc.level.getEntitiesOfClass(net.minecraft.world.entity.monster.warden.Warden.class, mc.player.getBoundingBox().inflate(32));
+	}
+
+	private static String warden(ClientGameTestContext context) {
+		return context.computeOnClient(mc -> wardens(mc).stream().map(w -> "tendrils " + w.getTendrilAnimation(1) + " heart " + w.getHeartAnimation(1)
+			+ ": " + describe(EntityScripts.get().model(w, 1)) + "; playing " + EntityScripts.get().describePlaying(w)).toList().toString());
+	}
+
+	private static String describe(xyz.ivyhq.lanature.client.model.ModelState m) {
+		if (m == null) {
+			return "Java model";
+		}
+		return m.parts().stream().map(p -> p.draw().geometry().id() + " " + p.draw().texture()
+			+ " " + java.util.Arrays.stream(p.draw().boneMaterials()).filter(java.util.Objects::nonNull).distinct().toList()
+			+ (p.draw().changeColor() != -1 ? String.format(" color #%08X", p.draw().changeColor()) : "")
+			+ (p.draw().uvAnim() != null ? " uv_anim " + java.util.Arrays.toString(p.draw().uvAnim()) : "")).toList() + " scale " + m.scale();
 	}
 
 	/**

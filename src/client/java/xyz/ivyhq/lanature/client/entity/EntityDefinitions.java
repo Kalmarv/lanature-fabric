@@ -1,6 +1,5 @@
 package xyz.ivyhq.lanature.client.entity;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
@@ -13,19 +12,40 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EntityType;
 import org.joml.Vector3f;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import xyz.ivyhq.lanature.client.model.BoneAnimation;
+import xyz.ivyhq.lanature.client.model.EntityMaterial;
+import xyz.ivyhq.lanature.client.model.Geometry;
+import xyz.ivyhq.lanature.client.model.RenderController;
 import xyz.ivyhq.lanature.client.particle.Expr;
 import xyz.ivyhq.lanature.molang.Node;
 
 /**
- * The compiled client entity definitions ({@code minecraft:client_entity}), animation controllers and animations, with
- * each entity's model locators. Only what drives effects is kept: scripts, controller states and the timed particle,
- * sound and timeline entries of animations; bone animation waits for model rendering.
+ * The compiled client entity definitions ({@code minecraft:client_entity}), animation controllers, animations,
+ * geometries and render controllers: the pack's over the vanilla Bedrock files it relies on. An entity is
+ * <em>modelled</em>, drawn with its Bedrock geometry in place of Java's model, when the pack gives it a geometry or
+ * render controller of its own and every render controller it names exists; others keep Java's model and run only
+ * their scripts.
  */
-public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<String, Controller> controllers, Map<String, Animation> animations) {
+public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<String, Controller> controllers, Map<String, Animation> animations,
+	Map<String, RenderController> renderControllers) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/entities");
-	public static final EntityDefinitions EMPTY = new EntityDefinitions(Map.of(), Map.of(), Map.of());
+	public static final EntityDefinitions EMPTY = new EntityDefinitions(Map.of(), Map.of(), Map.of(), Map.of());
+
+	/**
+	 * Entities whose Java look the port keeps even though the pack remodels them: Java draws the player's skin, cape,
+	 * armour and held items, and the villager's biome and profession layers, through layers on its own model, and
+	 * the Bedrock render controllers for them use multi-texture and colour-mask materials the port does not draw.
+	 */
+	private static final java.util.Set<String> JAVA_MODEL = java.util.Set.of("minecraft:player", "minecraft:villager_v2");
+
+	/** One kind of source: the vanilla Bedrock files the pack relies on, or the pack's own. */
+	public record Files(List<JsonObject> entities, List<JsonObject> controllers, List<JsonObject> animations, List<JsonObject> models,
+		List<JsonObject> renderControllers) {
+		public static final Files NONE = new Files(List.of(), List.of(), List.of(), List.of(), List.of());
+	}
 
 	/** Bedrock entity identifiers whose Java entity type has another name. */
 	private static final Map<String, String> JAVA_IDS = Map.of(
@@ -42,8 +62,13 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 	public record EffectRef(String effect, String locator, Node preEffectScript, boolean bindToActor) {
 	}
 
+	/**
+	 * A client entity. {@code locators} are in Java model axes and blocks, for an entity facing +Z before its yaw;
+	 * {@code renderControllers} pairs each controller's identifier with its condition (null: always).
+	 */
 	public record ClientEntity(String id, Node initialize, Node preAnimation, List<Entry> animate, Node scale, Map<String, String> animations,
-		Map<String, String> particleEffects, Map<String, String> soundEffects, Map<String, Vector3f> locators) {
+		Map<String, String> particleEffects, Map<String, String> soundEffects, Map<String, Vector3f> locators, Map<String, Geometry> geometries,
+		Map<String, Identifier> textures, Map<String, EntityMaterial> materials, List<Entry> renderControllers, boolean modelled, BehaviourScale behaviourScale) {
 	}
 
 	public record Transition(String target, Node condition) {
@@ -57,24 +82,39 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 
 	public enum Loop { ONCE, LOOP, HOLD }
 
-	public record Animation(String id, Loop loop, double length, TreeMap<Double, List<Node>> timeline, TreeMap<Double, List<EffectRef>> particles,
-		TreeMap<Double, List<String>> sounds) {
+	/**
+	 * An animation; {@code startDelay} (seconds before it plays, evaluated as it starts) and {@code loopDelay} (seconds
+	 * before each loop, evaluated as it ends) are null when it has none.
+	 */
+	public record Animation(String id, Loop loop, double length, @Nullable Node startDelay, @Nullable Node loopDelay, TreeMap<Double, List<Node>> timeline,
+		TreeMap<Double, List<EffectRef>> particles, TreeMap<Double, List<String>> sounds, BoneAnimation bones) {
 	}
 
-	public static EntityDefinitions load(List<JsonObject> entityFiles, List<JsonObject> controllerFiles, List<JsonObject> animationFiles,
-		List<JsonObject> modelFiles) {
-		Map<String, Map<String, Vector3f>> locators = new HashMap<>();
-		modelFiles.forEach(f -> geometryLocators(f, locators));
+	/** The Bedrock identifiers of the modelled entities, sorted. */
+	public List<String> modelled() {
+		return entities.values().stream().filter(ClientEntity::modelled).map(ClientEntity::id).sorted().toList();
+	}
+
+	/** Loads the vanilla files, then the pack's over them (same identifiers replace); {@code materials} by name. */
+	/** {@code scales}: the behaviour pack's scale of each entity (see {@link BehaviourScale}), by Bedrock identifier. */
+	public static EntityDefinitions load(Files vanilla, Files pack, Map<String, EntityMaterial> materials, JsonObject scales) {
+		Map<String, Geometry> geometries = new HashMap<>(Geometry.load(vanilla.models()));
+		Map<String, Geometry> packGeometries = Geometry.load(pack.models());
+		geometries.putAll(packGeometries);
+		Map<String, RenderController> renderControllers = new HashMap<>(RenderController.load(vanilla.renderControllers()));
+		Map<String, RenderController> packRenderControllers = RenderController.load(pack.renderControllers());
+		renderControllers.putAll(packRenderControllers);
 		Map<String, Controller> controllers = new HashMap<>();
-		for (JsonObject f : controllerFiles) {
+		for (JsonObject f : concat(vanilla.controllers(), pack.controllers())) {
 			section(f, "animation_controllers").forEach((id, v) -> guarded(id, () -> controllers.put(id, controller(id, v))));
 		}
 		Map<String, Animation> animations = new HashMap<>();
-		for (JsonObject f : animationFiles) {
+		for (JsonObject f : concat(vanilla.animations(), pack.animations())) {
 			section(f, "animations").forEach((id, v) -> guarded(id, () -> animations.put(id, animation(id, v))));
 		}
+		Sources sources = new Sources(geometries, packGeometries.keySet(), renderControllers, packRenderControllers.keySet(), materials, scales);
 		Map<EntityType<?>, ClientEntity> entities = new HashMap<>();
-		for (JsonObject f : entityFiles) {
+		for (JsonObject f : concat(vanilla.entities(), pack.entities())) {
 			JsonObject desc = f.has("minecraft:client_entity") ? f.getAsJsonObject("minecraft:client_entity").getAsJsonObject("description") : null;
 			if (desc == null || !desc.has("identifier")) {
 				continue;
@@ -86,9 +126,19 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 				LOGGER.info("Client entity {} has no Java entity; skipped", id);
 				continue;
 			}
-			guarded(id, () -> entities.put(type, entity(id, desc, locators)));
+			guarded(id, () -> entities.put(type, entity(id, desc, sources)));
 		}
-		return new EntityDefinitions(Map.copyOf(entities), Map.copyOf(controllers), Map.copyOf(animations));
+		return new EntityDefinitions(Map.copyOf(entities), Map.copyOf(controllers), Map.copyOf(animations), Map.copyOf(renderControllers));
+	}
+
+	private record Sources(Map<String, Geometry> geometries, java.util.Set<String> packGeometries, Map<String, RenderController> renderControllers,
+		java.util.Set<String> packRenderControllers, Map<String, EntityMaterial> materials, JsonObject scales) {
+	}
+
+	private static List<JsonObject> concat(List<JsonObject> a, List<JsonObject> b) {
+		List<JsonObject> out = new ArrayList<>(a);
+		out.addAll(b);
+		return out;
 	}
 
 	private static void guarded(String id, Runnable r) {
@@ -113,58 +163,55 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 
 	// client entities
 
-	private static ClientEntity entity(String id, JsonObject desc, Map<String, Map<String, Vector3f>> geometryLocators) {
+	private static ClientEntity entity(String id, JsonObject desc, Sources sources) {
 		JsonObject scripts = obj(desc, "scripts");
-		Map<String, Vector3f> locators = new HashMap<>();
-		// the default geometry's locators first, then those only other geometries have
-		JsonObject geometry = obj(desc, "geometry");
-		List<String> geometries = new ArrayList<>();
-		if (geometry.has("default")) {
-			geometries.add(geometry.get("default").getAsString());
+		Map<String, Geometry> geometries = new HashMap<>();
+		boolean packLook = false;
+		for (Map.Entry<String, String> e : strings(obj(desc, "geometry")).entrySet()) {
+			Geometry g = sources.geometries().get(e.getValue());
+			if (g == null) {
+				LOGGER.warn("{}: geometry {} ({}) is not defined", id, e.getKey(), e.getValue());
+				continue;
+			}
+			geometries.put(e.getKey().toLowerCase(Locale.ROOT), g);
+			packLook |= sources.packGeometries().contains(e.getValue());
 		}
-		geometry.entrySet().forEach(e -> geometries.add(e.getValue().getAsString()));
-		for (String g : geometries) {
-			geometryLocators.getOrDefault(g, Map.of()).forEach(locators::putIfAbsent);
+		Map<String, Identifier> textures = new HashMap<>();
+		strings(obj(desc, "textures")).forEach((k, v) -> {
+			Identifier t = Identifier.tryParse(v);
+			if (t != null) {
+				textures.put(k.toLowerCase(Locale.ROOT), t);
+			}
+		});
+		Map<String, EntityMaterial> materials = new HashMap<>();
+		strings(obj(desc, "materials")).forEach((k, v) -> materials.put(k.toLowerCase(Locale.ROOT), EntityMaterial.lookup(sources.materials(), v)));
+		List<Entry> renderControllers = entries(desc.get("render_controllers"));
+		boolean complete = !renderControllers.isEmpty();
+		for (Entry rc : renderControllers) {
+			if (!sources.renderControllers().containsKey(rc.name())) {
+				LOGGER.warn("{}: render controller {} is not defined; the entity keeps Java's model", id, rc.name());
+				complete = false;
+			}
+			packLook |= sources.packRenderControllers().contains(rc.name());
+		}
+		boolean modelled = packLook && complete && !JAVA_MODEL.contains(id);
+		// the default geometry's locators first, then those only other geometries have
+		Map<String, Vector3f> locators = new HashMap<>();
+		List<Geometry> ordered = new ArrayList<>();
+		if (geometries.containsKey("default")) {
+			ordered.add(geometries.get("default"));
+		}
+		ordered.addAll(geometries.values());
+		for (Geometry g : ordered) {
+			for (Geometry.Bone b : g.bones()) {
+				// geometry axes (model facing -Z) to a Java entity facing +Z: a half turn about Y
+				b.locators().forEach((name, at) -> locators.putIfAbsent(name, new Vector3f(-at.x, at.y, -at.z).div(16)));
+			}
 		}
 		return new ClientEntity(id, Expr.script(scripts.get("initialize")), Expr.script(scripts.get("pre_animation")), entries(scripts.get("animate")),
 			scripts.has("scale") ? Expr.scalar(scripts.get("scale"), 1) : null, strings(obj(desc, "animations")), strings(obj(desc, "particle_effects")),
-			strings(obj(desc, "sound_effects")), Map.copyOf(locators));
-	}
-
-	/**
-	 * Locators of every geometry, in Java model axes and blocks: Bedrock's model faces -Z in pixels, so a point
-	 * {@code (x, y, z)} is {@code (-x, y, -z) / 16} in front of a Java entity that faces +Z before its yaw turns it.
-	 */
-	private static void geometryLocators(JsonObject file, Map<String, Map<String, Vector3f>> out) {
-		if (file.has("minecraft:geometry") && file.get("minecraft:geometry").isJsonArray()) {
-			for (JsonElement g : file.getAsJsonArray("minecraft:geometry")) {
-				JsonObject go = g.getAsJsonObject();
-				out.put(go.getAsJsonObject("description").get("identifier").getAsString(), boneLocators(go));
-			}
-		}
-		file.entrySet().forEach(e -> {
-			if (e.getKey().startsWith("geometry.") && e.getValue().isJsonObject()) {
-				out.put(e.getKey().split(":", 2)[0], boneLocators(e.getValue().getAsJsonObject()));
-			}
-		});
-	}
-
-	private static Map<String, Vector3f> boneLocators(JsonObject geometry) {
-		Map<String, Vector3f> out = new HashMap<>();
-		if (!geometry.has("bones")) {
-			return out;
-		}
-		for (JsonElement b : geometry.getAsJsonArray("bones")) {
-			JsonObject bone = b.getAsJsonObject();
-			obj(bone, "locators").entrySet().forEach(e -> {
-				JsonElement v = e.getValue();
-				JsonArray at = v.isJsonArray() ? v.getAsJsonArray() : v.isJsonObject() && v.getAsJsonObject().has("offset") ? v.getAsJsonObject().getAsJsonArray("offset") : null;
-				if (at != null && at.size() == 3) {
-					out.put(e.getKey(), new Vector3f(-at.get(0).getAsFloat(), at.get(1).getAsFloat(), -at.get(2).getAsFloat()).div(16));
-				}
-			});
-		}
-		return out;
+			strings(obj(desc, "sound_effects")), Map.copyOf(locators), Map.copyOf(geometries), Map.copyOf(textures), Map.copyOf(materials),
+			renderControllers, modelled, sources.scales().has(id) ? BehaviourScale.parse(sources.scales().getAsJsonObject(id)) : BehaviourScale.NONE);
 	}
 
 	// controllers
@@ -231,7 +278,9 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 				}
 			}
 		}
-		return new Animation(id, loop, length, timeline, particles, sounds);
+		Node startDelay = a.has("start_delay") ? Expr.scalar(a.get("start_delay"), 0) : null;
+		Node loopDelay = a.has("loop_delay") ? Expr.scalar(a.get("loop_delay"), 0) : null;
+		return new Animation(id, loop, length, startDelay, loopDelay, timeline, particles, sounds, BoneAnimation.parse(a));
 	}
 
 	private static double lastKey(TreeMap<Double, ?> map) {
