@@ -35,12 +35,15 @@ sourceSets {
 
 repositories {
 	mavenCentral()
+	maven { url = 'https://maven.terraformersmc.com/releases/' }
 }
 
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	// optional: Mod Menu's config button opens the pack settings
+	compileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
 
 	converterImplementation 'com.google.code.gson:gson:2.13.2'
 

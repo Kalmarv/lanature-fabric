@@ -15,6 +15,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import net.fabricmc.fabric.api.resource.v1.reloader.SimpleReloadListener;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.PreparableReloadListener;
@@ -27,13 +29,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import xyz.ivyhq.lanature.client.entity.EntityDefinitions;
 import xyz.ivyhq.lanature.client.entity.EntityScripts;
+import xyz.ivyhq.lanature.client.environment.BiomeLooks;
 import xyz.ivyhq.lanature.client.particle.Material;
 import xyz.ivyhq.lanature.client.particle.ParticleLoader;
 import xyz.ivyhq.lanature.client.settings.PackSettings;
 
 /**
  * Loads the converted Bedrock data from {@code assets/lanature/bedrock/} on every resource reload: the pack's
- * settings, the block-name and biome tables, then the particle effects.
+ * settings, the block-name and biome tables, the particle effects, client entities and biome looks (fogs and colours).
  */
 public final class BedrockResources extends SimpleReloadListener<BedrockResources.Loaded> {
 	public static final Identifier ID = Identifier.fromNamespaceAndPath("lanature", "bedrock");
@@ -45,7 +48,8 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 	}
 
 	/** Everything read off-thread, applied on the client thread. */
-	public record Loaded(JsonObject manifest, ParticleLoader.Result particles, EntityDefinitions entities, Map<String, BiomeInfo> biomes) {
+	public record Loaded(JsonObject manifest, ParticleLoader.Result particles, EntityDefinitions entities, Map<String, BiomeInfo> biomes,
+		BiomeLooks.Table looks) {
 	}
 
 	/** Java biome id → its Bedrock biome and tags. */
@@ -77,7 +81,12 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 			o.getAsJsonArray("tags").forEach(t -> tags.add(t.getAsString()));
 			biomeMap.put(e.getKey(), new BiomeInfo(o.get("bedrock").getAsString(), Set.copyOf(tags)));
 		}));
-		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap));
+		// vanilla fogs first, so the pack's own replace any of the same identifier
+		List<JsonObject> fogFiles = new ArrayList<>(files(rm, ROOT + "/vanilla/fogs"));
+		fogFiles.addAll(files(rm, ROOT + "/fogs"));
+		BiomeLooks.Table looks = BiomeLooks.resolve(fogFiles, json(rm, ROOT + "/biomes_client.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
+			files(rm, ROOT + "/biomes"), biomeMap);
+		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), looks);
 	}
 
 	@Override
@@ -86,9 +95,11 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 		biomes = loaded.biomes();
 		loaded.particles().apply();
 		EntityScripts.get().load(loaded.entities());
-		LOGGER.info("Loaded {} Bedrock particle effects, {} particle triggers, {} client entities ({} controllers, {} animations), {} pack settings",
-			loaded.particles().effects().size(), loaded.particles().triggers().size(), loaded.entities().entities().size(),
-			loaded.entities().controllers().size(), loaded.entities().animations().size(), PackSettings.get().all().size());
+		ClientLevel level = Minecraft.getInstance().level;
+		BiomeLooks.bind(loaded.looks(), level == null ? null : level.registryAccess());
+		LOGGER.info("Loaded {} Bedrock particle effects, {} particle triggers, {} client entities ({} controllers, {} animations), {} pack settings, "
+			+ "{} biome looks", loaded.particles().effects().size(), loaded.particles().triggers().size(), loaded.entities().entities().size(),
+			loaded.entities().controllers().size(), loaded.entities().animations().size(), PackSettings.get().all().size(), loaded.looks().byJavaId().size());
 	}
 
 	/** Bedrock block name → the Java block states listed for it ({@code minecraft:water[level=0]} or a whole block). */

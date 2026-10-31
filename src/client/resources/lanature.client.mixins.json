@@ -3,6 +3,10 @@
 	"package": "xyz.ivyhq.lanature.client.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
+		"AtmosphericFogEnvironmentMixin",
+		"BiomeMixin",
+		"ClientLevelMixin",
+		"EnvironmentAttributeSystemBuilderAccessor",
 		"ParticleEngineMixin"
 	],
 	"injectors": {

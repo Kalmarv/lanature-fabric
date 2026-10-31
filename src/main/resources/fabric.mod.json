@@ -8,7 +8,8 @@
 	"license": "LicenseRef-personal-use",
 	"environment": "client",
 	"entrypoints": {
-		"client": ["xyz.ivyhq.lanature.client.LaNatureClient"]
+		"client": ["xyz.ivyhq.lanature.client.LaNatureClient"],
+		"modmenu": ["xyz.ivyhq.lanature.client.settings.ModMenuIntegration"]
 	},
 	"mixins": [
 		{
@@ -21,5 +22,8 @@
 		"minecraft": "~26.3",
 		"java": ">=25",
 		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": "*"
 	}
 }

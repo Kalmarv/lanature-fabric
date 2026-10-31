@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -55,6 +56,7 @@ public final class RuntimeExporter {
 			}
 		}
 		vanillaParticles(particleIds, definitions);
+		vanillaFogs(definitions);
 		int textured = 0;
 		for (Map.Entry<String, JsonElement> e : definitions.entrySet()) {
 			if (e.getKey().startsWith("particles/") || e.getKey().startsWith("vanilla/particles/")) {
@@ -127,6 +129,53 @@ public final class RuntimeExporter {
 			String path = vanilla.get(id);
 			if (path == null) {
 				report.warn("runtime", "event spawns undefined effect " + id);
+				continue;
+			}
+			definitions.put("vanilla/" + TextureExporter.sanitize(path), Json.parse(pack.vanilla.get(path)));
+		}
+	}
+
+	/**
+	 * Vanilla fogs the pack's biomes name but do not define ({@code minecraft:fog_birch_forest} in a client biome file),
+	 * under {@code vanilla/fogs/}.
+	 */
+	private void vanillaFogs(Map<String, JsonElement> definitions) {
+		Set<String> defined = new HashSet<>();
+		Set<String> wanted = new java.util.TreeSet<>();
+		definitions.forEach((path, json) -> {
+			if (path.startsWith("fogs/")) {
+				defined.add(json.getAsJsonObject().getAsJsonObject("minecraft:fog_settings").getAsJsonObject("description").get("identifier").getAsString());
+			} else if (path.startsWith("biomes/")) {
+				JsonObject fog = json.getAsJsonObject().getAsJsonObject("minecraft:client_biome").getAsJsonObject("components")
+					.getAsJsonObject("minecraft:fog_appearance");
+				if (fog != null) {
+					wanted.add(fog.get("fog_identifier").getAsString());
+				}
+			}
+		});
+		JsonElement legacy = parse("biomes_client.json");
+		if (legacy != null) {
+			legacy.getAsJsonObject().getAsJsonObject("biomes").entrySet().forEach(e -> {
+				JsonElement id = e.getValue().getAsJsonObject().get("fog_identifier");
+				if (id != null) {
+					wanted.add(id.getAsString());
+				}
+			});
+		}
+		Map<String, String> vanilla = new HashMap<>();
+		for (String path : pack.vanilla.paths("fogs/")) {
+			if (path.endsWith(".json")) {
+				vanilla.put(Json.parse(pack.vanilla.get(path)).getAsJsonObject().getAsJsonObject("minecraft:fog_settings")
+					.getAsJsonObject("description").get("identifier").getAsString(), path);
+			}
+		}
+		for (String id : wanted) {
+			if (defined.contains(id)) {
+				continue;
+			}
+			String path = vanilla.get(id);
+			if (path == null) {
+				report.warn("runtime", "biome uses undefined fog " + id);
 				continue;
 			}
 			definitions.put("vanilla/" + TextureExporter.sanitize(path), Json.parse(pack.vanilla.get(path)));

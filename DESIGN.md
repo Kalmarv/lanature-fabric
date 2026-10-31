@@ -83,5 +83,25 @@ produces is for personal use only.
   axes, scaled by `scripts.scale`, turned by the body yaw), without bone animation. Sounds are the converted Bedrock
   definitions; the local player's go to the ambient category, since the pack hosts its world ambience on the player.
   Model rendering comes later.
+* **Biome looks** (`environment/`): each Java biome's Bedrock biome (`biomes_java.json`) gets its fog and colours from
+  the pack. The legacy `biomes_client.json` gives a biome's `fog_identifier` and `water_surface_color`, its `default`
+  entry filling missing fields and standing for every unlisted biome; the pack's `client_biome` files override those
+  per component and add `sky_color`, `grass_appearance` and `foliage_appearance`. Bedrock does not document which of
+  the two formats wins within one pack; the newer one is taken. Vanilla Bedrock's client biomes are not read: what
+  the pack leaves alone stays Java's. Fogs follow Bedrock's fog stack: the biome's fog over the data default (the
+  `default` entry's fog), setting by setting, then Java's own values. Vanilla fogs the pack names are exported under
+  `bedrock/vanilla/fogs/`.
+  * Air and water fog distances and colours and the sky colour are an environment attribute layer of the client
+    level, after Java's biome layer and before time of day and weather, so Java's night and rain darkening apply to
+    them. At the camera they are averaged over nearby biomes with Java's own biome kernel. `render` distances are
+    fractions of the render distance.
+  * Rain is Bedrock's `weather` fog: its colour takes over from the air colour with the rain level, in place of Java's
+    darkening of the fog colour in rain and thunder (Bedrock's own default weather fog, a mid grey, would be nearly
+    black under it; inferred), and its distances replace Java's rain fog offsets, by Java's rain fog factor (rain where
+    the sky is visible, eased).
+  * Water surface, grass (base colour, under Java's swamp and dark forest modifiers) and foliage colours come from
+    the biome's look. Water transparency and Bedrock's water transition fog (Java has its own underwater vision ramp)
+    are not reproduced.
 * **Settings**: the manifest's 38 pack settings, saved to `config/lanature.json`, behind the Molang queries
-  `get_pack_setting`, `is_pack_setting_enabled` and `is_pack_setting_selected`.
+  `get_pack_setting`, `is_pack_setting_enabled` and `is_pack_setting_selected`. The pack's settings screen (key
+  binding, unbound by default, and Mod Menu) shows the pack's texts with Bedrock's formatting codes.

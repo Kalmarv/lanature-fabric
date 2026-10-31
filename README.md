@@ -25,4 +25,5 @@ cp ~/Downloads/La-Nature-*.mcpack pack/
 xvfb-run -a ./gradlew runClientGameTest   # optional: builds a test scene and takes screenshots
 ```
 
-Pack settings are stored in `config/lanature.json`.
+Pack settings are stored in `config/lanature.json`. Change them in game from Mod Menu or with the "Open La Nature settings"
+key (unbound by default; set it under Controls).

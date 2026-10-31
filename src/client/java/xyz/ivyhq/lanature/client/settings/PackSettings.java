@@ -132,11 +132,16 @@ public final class PackSettings {
 		};
 	}
 
+	/** Changes a setting in memory; {@link #save} writes the settings out. */
 	public synchronized void set(String name, Object value) {
 		if (settings.containsKey(name)) {
 			values.put(name, value);
-			save();
 		}
+	}
+
+	/** Returns every setting to the pack's default. */
+	public synchronized void reset() {
+		values.clear();
 	}
 
 	private void load() {
@@ -169,7 +174,7 @@ public final class PackSettings {
 		}
 	}
 
-	private void save() {
+	public synchronized void save() {
 		JsonObject o = new JsonObject();
 		values.forEach((k, v) -> o.add(k, GSON.toJsonTree(v)));
 		try {
