@@ -1,0 +1,20 @@
+{
+	"_comment": "Java texture → Bedrock vanilla texture pairs that neither PackConverter's table, the names nor the pixels connect.",
+	"block/jack_o_lantern": "textures/blocks/pumpkin_face_on",
+	"gui/sprites/hud/heart/full": "textures/ui/heart",
+	"gui/sprites/hud/heart/half": "textures/ui/heart_half",
+	"gui/sprites/hud/heart/container": "textures/ui/heart_background",
+	"gui/sprites/hud/heart/full_blinking": "textures/ui/heart_flash",
+	"gui/sprites/hud/heart/half_blinking": "textures/ui/heart_flash_half",
+	"gui/sprites/hud/heart/absorbing_full": "textures/ui/absorption_heart",
+	"gui/sprites/hud/heart/absorbing_half": "textures/ui/absorption_heart_half",
+	"gui/sprites/hud/armor_empty": "textures/ui/armor_empty",
+	"gui/sprites/hud/armor_full": "textures/ui/armor_full",
+	"gui/sprites/hud/armor_half": "textures/ui/armor_half",
+	"gui/sprites/hud/food_empty": "textures/ui/hunger_background",
+	"gui/sprites/hud/food_full": "textures/ui/hunger_full",
+	"gui/sprites/hud/food_half": "textures/ui/hunger_half",
+	"gui/sprites/hud/food_empty_hunger": "textures/ui/hunger_effect_background",
+	"gui/sprites/hud/food_full_hunger": "textures/ui/hunger_effect_full",
+	"gui/sprites/hud/food_half_hunger": "textures/ui/hunger_effect_half"
+}

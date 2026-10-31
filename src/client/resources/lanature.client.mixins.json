@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "xyz.ivyhq.lanature.client.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"ParticleEngineMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

@@ -1,0 +1,13 @@
+{
+	"_comment": "Bedrock picks an entry of a list-valued terrain tile by the block's legacy data value. For blocks whose vanilla tiles are lists, the converter infers the index from texture identity; these are the blocks the pack gives list tiles that vanilla does not, with their legacy data layout (sum of state value times multiplier).",
+	"end_portal_frame": [
+		{ "state": "minecraft:cardinal_direction", "values": { "south": 0, "west": 1, "north": 2, "east": 3 } },
+		{ "state": "end_portal_eye_bit", "multiplier": 4 }
+	],
+	"hopper": [
+		{ "state": "facing_direction" },
+		{ "state": "toggle_bit", "multiplier": 8 }
+	],
+	"sweet_berry_bush": [ { "state": "growth" } ],
+	"pale_hanging_moss": [ { "state": "tip" } ]
+}

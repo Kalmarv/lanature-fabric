@@ -1,0 +1,153 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+	archivesName = 'lanature'
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"lanature" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+// Client game tests (src/gametest): a world with the mod running, checked by screenshots and particle counts.
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "lanature-gametest"
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true
+	}
+}
+
+sourceSets {
+	// Build-time converter from the Bedrock .mcpack to Java resources. Plain Java, not part of the mod.
+	converter
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	converterImplementation 'com.google.code.gson:gson:2.13.2'
+
+	testImplementation platform('org.junit:junit-bom:5.13.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testImplementation 'com.google.code.gson:gson:2.13.2'
+}
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+	it.options.encoding = 'UTF-8'
+}
+
+// The Bedrock pack is the user's own download; the repository carries none of its assets. It is the one .mcpack
+// in pack/ (gitignored), or wherever -Planature.pack / LANATURE_PACK points.
+def bedrockPack = providers.gradleProperty('lanature.pack')
+	.orElse(providers.environmentVariable('LANATURE_PACK'))
+	.orElse(provider {
+		def found = file('pack').listFiles()?.findAll { it.name.endsWith('.mcpack') || it.name.endsWith('.zip') }
+		if (!found) {
+			throw new GradleException('Put the La Nature .mcpack in pack/ (or pass -Planature.pack=PATH)')
+		}
+		found.sort { it.name }.last().absolutePath
+	})
+def generatedAssets = layout.buildDirectory.dir('generated/lanature')
+def minecraftClientJar = provider {
+	sourceSets.client.compileClasspath.find { it.name.startsWith('minecraft-clientOnly') && it.name.endsWith('.jar') }
+}
+
+// Minecraft's own block report: every block state with its numeric id, which Geyser's table is indexed by.
+def minecraftReportsDir = layout.buildDirectory.dir('minecraft-reports')
+def minecraftReports = tasks.register('minecraftReports', JavaExec) {
+	group = 'lanature'
+	description = 'Runs the vanilla data generator for its block state report.'
+	classpath = sourceSets.main.runtimeClasspath - sourceSets.main.output
+	mainClass = 'net.minecraft.data.Main'
+	javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+	def dir = minecraftReportsDir.get().asFile
+	args '--reports', '--output', dir.absolutePath
+	outputs.dir(dir)
+	inputs.property('minecraft', project.minecraft_version)
+}
+
+// Minecraft's asset index (which sound files Java ships), downloaded by Loom's downloadAssets
+def assetIndex = provider {
+	def dir = new File(gradle.gradleUserHomeDir, 'caches/fabric-loom/assets/indexes')
+	def found = dir.listFiles()?.find { it.name.startsWith("${project.minecraft_version}-") && it.name.endsWith('.json') }
+	if (!found) {
+		throw new GradleException("No asset index for ${project.minecraft_version} in ${dir}; run ./gradlew downloadAssets")
+	}
+	found
+}
+def convertPack = tasks.register('convertPack', JavaExec) {
+	group = 'lanature'
+	description = 'Converts the La Nature .mcpack into Java resources.'
+	dependsOn minecraftReports, 'downloadAssets'
+	classpath = sourceSets.converter.runtimeClasspath
+	mainClass = 'xyz.ivyhq.lanature.converter.Main'
+	javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(25) }
+	maxHeapSize = '3g'
+	inputs.file(bedrockPack)
+	inputs.dir('refs')
+	inputs.file(minecraftClientJar)
+	inputs.dir(minecraftReportsDir)
+	inputs.file(assetIndex)
+	outputs.dir(generatedAssets)
+	def out = generatedAssets.get().asFile
+	def refs = file('refs')
+	def report = minecraftReportsDir.get().file('reports/blocks.json').asFile
+	argumentProviders.add({ [
+		'--pack', bedrockPack.get(),
+		'--refs', refs.absolutePath,
+		'--minecraft-jar', minecraftClientJar.get().absolutePath,
+		'--block-report', report.absolutePath,
+		'--asset-index', assetIndex.get().absolutePath,
+		'--out', out.absolutePath,
+	] } as CommandLineArgumentProvider)
+}
+
+sourceSets.client.resources.srcDir(files(generatedAssets).builtBy(convertPack))
+
+tasks.named('test', Test) {
+	useJUnitPlatform()
+	// The pack-wide Molang test reads the converted definitions when they exist.
+	systemProperty 'lanature.generated', generatedAssets.get().asFile.absolutePath
+	testLogging { events 'failed'; exceptionFormat 'full'; showStandardStreams = true }
+}
+
+processClientResources {
+	def version = project.version
+	inputs.property 'version', version
+	filesMatching('fabric.mod.json') {
+		expand 'version': version
+	}
+}
+
+processResources {
+	def version = project.version
+	inputs.property 'version', version
+	filesMatching('fabric.mod.json') {
+		expand 'version': version
+	}
+}

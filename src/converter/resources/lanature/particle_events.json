@@ -1,0 +1,12 @@
+{
+	"_comment": "Bedrock level-event particles (Geyser's eventType) → the effect identifier the Bedrock engine spawns for them.",
+	"SMOKE": "minecraft:basic_smoke_particle",
+	"WHITE_SMOKE": "minecraft:white_smoke_particle",
+	"PALE_OAK_LEAVES": "minecraft:pale_oak_leaves_particle",
+	"ORANGE_POPLAR_LEAVES": "minecraft:orange_poplar_leaves_particle",
+	"RED_POPLAR_LEAVES": "minecraft:red_poplar_leaves_particle",
+	"YELLOW_POPLAR_LEAVES": "minecraft:yellow_poplar_leaves_particle",
+	"PAUSE_MOB_GROWTH": "minecraft:pause_mob_growth",
+	"RESET_MOB_GROWTH": "minecraft:reset_mob_growth",
+	"RAIN_SPLASH": "minecraft:rain_splash_particle"
+}

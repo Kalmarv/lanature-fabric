@@ -1,0 +1,14 @@
+{
+	"schemaVersion": 1,
+	"id": "lanature-gametest",
+	"version": "${version}",
+	"name": "La Nature game tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": ["xyz.ivyhq.lanature.gametest.LaNatureGameTest"]
+	},
+	"depends": {
+		"lanature": "*",
+		"fabric-client-gametest-api-v1": "*"
+	}
+}

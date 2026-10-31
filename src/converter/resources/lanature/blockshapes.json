@@ -1,0 +1,7 @@
+{
+	"_comment": "Bedrock render shapes a blocks.json entry can borrow (blockshape), as the Java model with that geometry and the vanilla Bedrock block that natively has it. The converter matches the Java model's textures to that Bedrock block's face slots by texture identity, then fills the slots from the converted block's own textures.",
+	"flowering_azalea": { "model": "block/azalea", "potted_model": "block/potted_azalea_bush", "bedrock": "azalea" },
+	"fire": { "model": "block/fire_floor0", "bedrock": "fire" },
+	"torch": { "model": "block/torch", "bedrock": "torch" },
+	"lilypad": { "model": "block/lily_pad", "bedrock": "waterlily" }
+}

@@ -1,0 +1,25 @@
+{
+	"schemaVersion": 1,
+	"id": "lanature",
+	"version": "${version}",
+	"name": "La Nature (Java port)",
+	"description": "A Java port of Carrot's Bedrock resource pack La Nature: its textures, sounds, ambient particles and scripts, built from your own copy of the pack. For personal use only: the pack's assets are All Rights Reserved.",
+	"authors": ["Carrot (original pack)"],
+	"license": "LicenseRef-personal-use",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["xyz.ivyhq.lanature.client.LaNatureClient"]
+	},
+	"mixins": [
+		{
+			"config": "lanature.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

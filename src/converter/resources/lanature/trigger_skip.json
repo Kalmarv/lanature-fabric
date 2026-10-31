@@ -1,0 +1,12 @@
+{
+	"//": "Java particle types not replaced one for one: Java spawns many particles for one game event where Bedrock starts the effect once, so one Bedrock effect per Java particle would multiply it. These need an event-level bridge.",
+	"minecraft:crit": "Java spawns a burst of crit particles per hit (a tracking emitter); critical_hit_emitter is a steady emitter of its own, once per hit",
+	"minecraft:dust_pillar": "Java spawns many dust pillar particles per mace smash; smash_ground_particle emits 500 per smash and reads the ground block's texture",
+	"minecraft:effect": "Java spawns ~100 effect particles per splash potion; splash_spell_emitter emits 100 per splash",
+	"minecraft:instant_effect": "Java spawns ~100 per instant splash potion; mobspell_emitter is per potion",
+	"minecraft:item": "Java spawns item-break particles one by one; breaking_item_icon emits v.num_particles per break and reads the item texture",
+	"minecraft:totem_of_undying": "Java's totem is a tracking emitter of many particles; the Bedrock effect is once per totem use",
+	"minecraft:geyser_base": "Bedrock reads the geyser's active_time and plume_height, which a Java particle does not carry",
+	"minecraft:geyser_plume": "Bedrock reads the geyser's active_time and plume_height, which a Java particle does not carry",
+	"minecraft:geyser_poof": "Bedrock reads the geyser's plume_height, which a Java particle does not carry"
+}

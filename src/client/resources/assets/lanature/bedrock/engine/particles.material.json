@@ -1,0 +1,23 @@
+{
+  "_comment": "Bedrock's built-in particle materials, which no pack ships; the pack's particles.material derives from these. Inferred, not read from the game: particles_alpha cuts out with ALPHA_TEST, particles_blend alpha-blends, particles_add adds without depth writes; the pack's derived materials add ENABLE_FOG to particles_base and remove it from particles_alpha and particles_blend, so only those two fog. All are drawn double-sided.",
+  "materials": {
+    "version": "1.0.0",
+    "particles_base": {
+      "+states": [ "DisableCulling" ]
+    },
+    "particles_opaque:particles_base": {},
+    "particles_alpha:particles_base": {
+      "+defines": [ "ALPHA_TEST", "ENABLE_FOG" ]
+    },
+    "particles_blend:particles_base": {
+      "+defines": [ "ENABLE_FOG" ],
+      "+states": [ "Blending" ],
+      "blendSrc": "SourceAlpha",
+      "blendDst": "OneMinusSrcAlpha"
+    },
+    "particles_add:particles_blend": {
+      "+states": [ "DisableDepthWrite" ],
+      "blendDst": "One"
+    }
+  }
+}
