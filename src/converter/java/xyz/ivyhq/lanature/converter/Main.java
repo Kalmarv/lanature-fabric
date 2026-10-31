@@ -73,6 +73,7 @@ public final class Main {
 			json(refs.resolve("pack-converter/converter/src/main/resources/mappings/sounds.json")),
 			SoundConverter.javaSounds(json(Path.of(require(opts, "--asset-index")))), assets, report).run();
 		LangConverter.run(pack, assets, report);
+		PackIcon.run(pack, assets, report);
 		Triggers.run(json(refs.resolve("geyser-mappings/particles.json")), resource("particle_events.json"), resource("trigger_skip.json"), packEffects(pack), assets, report);
 
 		BiomeTags.run(samples, json(refs.resolve("geyser-mappings/biomes.json")), resource("biome_names.json"), assets, report);

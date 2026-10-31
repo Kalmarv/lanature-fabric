@@ -44,6 +44,8 @@ dependencies {
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 	// optional: Mod Menu's config button opens the pack settings
 	compileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+	// in the development client too (not the published mod), so the game test can show the mod list
+	localRuntime "com.terraformersmc:modmenu:${project.modmenu_version}"
 
 	converterImplementation 'com.google.code.gson:gson:2.13.2'
 

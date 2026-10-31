@@ -59,6 +59,8 @@ produces is for personal use only.
 * **Entity scales.** `bedrock/entity_scales.json`: each pack client entity's behaviour `minecraft:scale` from its
   components, its baby groups and its other groups (the cat's `cat_adult` 0.8, the salmon's three sizes). Java
   bakes the same sizes into its model meshes; Bedrock's client data never sees them.
+* **Icon.** `assets/lanature/icon.png`, the mod's icon in `fabric.mod.json`: the pack's `pack_icon.png` scaled to
+  256 pixels square (halved in bilinear steps), so the repository carries no pack image either.
 * **Triggers.** `assets/lanature/bedrock/triggers.json` maps Java particle types to the Bedrock effect identifiers
   the pack overrides. It comes from Geyser's table plus `src/converter/resources/particle_events.json` (Bedrock
   level events that engine code turns into effects).

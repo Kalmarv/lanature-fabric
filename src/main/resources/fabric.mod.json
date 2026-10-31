@@ -3,9 +3,16 @@
 	"id": "lanature",
 	"version": "${version}",
 	"name": "La Nature (Java port)",
-	"description": "A Java port of Carrot's Bedrock resource pack La Nature: its textures, sounds, ambient particles and scripts, built from your own copy of the pack. For personal use only: the pack's assets are All Rights Reserved.",
+	"description": "A Java port of Carrot's Bedrock resource pack La Nature: its textures, sounds, ambient particles, entity models and animations, biome fog and sky, and its settings, built from your own copy of the pack. For personal use only: the pack's assets are All Rights Reserved.",
 	"authors": ["Carrot (original pack)"],
+	"contributors": ["Kalmarv (Java port)"],
+	"contact": {
+		"homepage": "https://www.curseforge.com/minecraft-bedrock/texture-packs/la-nature-by-carrot",
+		"sources": "https://github.com/Kalmarv/lanature-fabric",
+		"issues": "https://github.com/Kalmarv/lanature-fabric/issues"
+	},
 	"license": "LicenseRef-personal-use",
+	"icon": "assets/lanature/icon.png",
 	"environment": "client",
 	"entrypoints": {
 		"client": ["xyz.ivyhq.lanature.client.LaNatureClient"],

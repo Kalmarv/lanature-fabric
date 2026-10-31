@@ -45,9 +45,13 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 					mc.gui.hud.toggle();
 				}
 			});
-			// LANATURE_GAMETEST=entities runs only the entity scene
+			// LANATURE_GAMETEST=entities runs only the entity scene, =modmenu only the mod list
 			if ("entities".equals(System.getenv("LANATURE_GAMETEST"))) {
 				entities(context, server, world);
+				return;
+			}
+			if ("modmenu".equals(System.getenv("LANATURE_GAMETEST"))) {
+				modMenu(context);
 				return;
 			}
 			server.runCommand("tp @p 0.5 99 0.5 180 -15");
@@ -263,6 +267,27 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 		server.runCommand("tp @p -40 100.5 -8.5 0 25");
 		context.waitTicks(10);
 		context.takeScreenshot("lanature-entities-others-back");
+	}
+
+	/** Mod Menu's list (in the development client), searched for the mod: its icon, name and description. */
+	private static void modMenu(ClientGameTestContext context) {
+		context.setScreen(() -> {
+			try {
+				return (net.minecraft.client.gui.screens.Screen) Class.forName("com.terraformersmc.modmenu.gui.ModsScreen")
+					.getConstructor(net.minecraft.client.gui.screens.Screen.class).newInstance((Object) null);
+			} catch (ReflectiveOperationException e) {
+				throw new IllegalStateException("Mod Menu is not in the development client", e);
+			}
+		});
+		context.waitTicks(10);
+		context.getInput().typeChars("La Nature");
+		context.waitTicks(10);
+		double[] firstRow = context.computeOnClient(mc -> new double[] {mc.getWindow().getScreenWidth() * 0.2, mc.getWindow().getScreenHeight() * 0.2});
+		context.getInput().setCursorPos(firstRow[0], firstRow[1]);
+		context.getInput().pressMouse(0); // the left button
+		context.waitTicks(10);
+		context.takeScreenshot("lanature-modmenu");
+		context.setScreen(() -> null);
 	}
 
 	private static java.util.List<net.minecraft.world.entity.monster.warden.Warden> wardens(net.minecraft.client.Minecraft mc) {
