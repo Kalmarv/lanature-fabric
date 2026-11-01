@@ -1,6 +1,7 @@
 package xyz.ivyhq.lanature.client.model;
 
 import com.google.gson.JsonObject;
+import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.pipeline.BlendFactor;
 import com.mojang.renderpearl.api.pipeline.BlendFunction;
@@ -8,16 +9,22 @@ import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.renderpearl.api.pipeline.DepthStencilState;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.textures.AddressMode;
+import com.mojang.renderpearl.api.textures.FilterMode;
+import com.mojang.renderpearl.api.textures.GpuSampler;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.client.renderer.feature.ItemFeatureRenderer;
 import net.minecraft.client.renderer.oit.OitPipelineSet;
 import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.rendertype.TextureTransform;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.ARGB;
 import org.jspecify.annotations.Nullable;
@@ -40,15 +47,21 @@ import xyz.ivyhq.lanature.client.bedrock.MaterialFile;
  * alpha by the colour's (Bedrock's 1.16 entity shader; the colour reaches the shader as the vertex colour, see
  * {@link #vertexColor}); the others leave the change colour unused, as Bedrock does. A
  * material with {@code USE_UV_ANIM} draws its texture coordinates moved and scaled by the render controller's
- * {@code uv_anim} (applied to the vertices; Bedrock's vertex shader does the same per vertex). Multi-texture materials
- * draw their first texture only.
+ * {@code uv_anim} (applied to the vertices; Bedrock's vertex shader does the same per vertex). A material with
+ * {@code GLINT} draws Bedrock's enchantment glint, its second texture scrolled over the first, as Java's entity glint
+ * (Java's item glint texture and texturing, added in the same shader as Java's {@code entity_solid_glint}; the pack keeps
+ * vanilla's glint texture, so Java's stands for it, inferred). Other multi-texture materials draw their first texture
+ * only. The main texture's sampler states ({@code Bilinear} filtering, {@code Clamp} wrapping: the pack's glows and
+ * halos) are the render type's sampler for it; without them the texture keeps its own (nearest, repeating).
  */
 public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, boolean depthWrite, CompareOp depthTest, boolean alphaWrite, boolean cull,
-	boolean alphaTest, boolean emissive, boolean overlay, boolean colorMask, boolean uvAnim) {
+	boolean alphaTest, boolean emissive, boolean overlay, boolean colorMask, boolean uvAnim, boolean glint, boolean linear, boolean clamp) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/entities");
 	private static final Identifier SHADER = Identifier.fromNamespaceAndPath("lanature", "core/bedrock_entity");
-	public static final EntityMaterial DEFAULT = new EntityMaterial(null, false, true, CompareOp.GREATER_THAN_OR_EQUAL, true, false, true, false, false, false, false);
-	private static final Map<EntityMaterial, Pipelines> PIPELINES = new ConcurrentHashMap<>();
+	public static final EntityMaterial DEFAULT = new EntityMaterial(null, false, true, CompareOp.GREATER_THAN_OR_EQUAL, true, false, true, false, false, false, false, false,
+		false, false);
+	/** Pipelines by {@link #key()}: materials differing only in their sampler share them. */
+	private static final Map<String, Pipelines> PIPELINES = new ConcurrentHashMap<>();
 	private static final Map<Key, RenderType> TYPES = new ConcurrentHashMap<>();
 
 	private record Pipelines(RenderPipeline main, @Nullable OitPipelineSet oit) {
@@ -60,23 +73,33 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 	/** The render type drawing this material with a texture. */
 	public RenderType renderType(Identifier texture) {
 		return TYPES.computeIfAbsent(new Key(this, texture), k -> {
-			Pipelines p = PIPELINES.computeIfAbsent(this, EntityMaterial::createPipelines);
-			RenderSetup.RenderSetupBuilder setup = RenderSetup.builder(p.main()).withTexture("Sampler0", texture).useLightmap();
+			Pipelines p = PIPELINES.computeIfAbsent(key(), x -> createPipelines());
+			// the texture's own sampler unless the material sets one (Bedrock's samplerStates for the main texture)
+			Supplier<GpuSampler> sampler = !linear && !clamp ? null : () -> {
+				AddressMode wrap = clamp ? AddressMode.CLAMP_TO_EDGE : AddressMode.REPEAT;
+				FilterMode filter = linear ? FilterMode.LINEAR : FilterMode.NEAREST;
+				return RenderSystem.getSamplerCache().getSampler(wrap, wrap, filter, filter, false);
+			};
+			RenderSetup.RenderSetupBuilder setup = RenderSetup.builder(p.main()).withTexture("Sampler0", texture, sampler).useLightmap();
 			if (!overlay) {
 				setup.useOverlay();
+			}
+			if (glint) {
+				setup.withTexture("GlintSampler", ItemFeatureRenderer.ENCHANTED_GLINT_ITEM).setTextureTransform(TextureTransform.ENTITY_GLINT_TEXTURING);
 			}
 			if (p.oit() != null) {
 				setup.setOitPipelines(p.oit()).sortOnUpload();
 			} else {
 				setup.affectsCrumbling().setOutline(RenderSetup.OutlineProperty.AFFECTS_OUTLINE);
 			}
-			return RenderType.create("lanature_bedrock_entity_" + key(), setup.createRenderSetup());
+			return RenderType.create("lanature_bedrock_entity_" + key() + (linear ? "_lin" : "") + (clamp ? "_cl" : ""), setup.createRenderSetup());
 		});
 	}
 
 	private Pipelines createPipelines() {
 		String key = key();
-		RenderPipeline.Builder main = RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET)
+		RenderPipeline.Builder main = (glint ? RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET, RenderPipelines.GLINT_SNIPPET)
+			: RenderPipeline.builder(RenderPipelines.ENTITY_SNIPPET))
 			.withLocation(Identifier.fromNamespaceAndPath("lanature", "pipeline/bedrock_entity_" + key))
 			.withDepthStencilState(new DepthStencilState(depthTest, depthWrite))
 			.withColorTargetState(new ColorTargetState(Optional.ofNullable(blend), GpuFormat.RGBA8_UNORM,
@@ -92,7 +115,8 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		if (blend == null) {
 			return new Pipelines(main.build(), null);
 		}
-		RenderPipeline.Builder oit = RenderPipeline.builder(RenderPipelines.OIT_ENTITY_SNIPPET);
+		RenderPipeline.Builder oit = glint ? RenderPipeline.builder(RenderPipelines.OIT_ENTITY_SNIPPET, RenderPipelines.GLINT_SNIPPET)
+			: RenderPipeline.builder(RenderPipelines.OIT_ENTITY_SNIPPET);
 		shader(oit);
 		if (additive) {
 			oit.withShaderDefine("OIT_ADDITIVE");
@@ -168,7 +192,7 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		k.append(blend == null ? "opaque" : (blend.color().sourceFactor() + "-" + blend.color().destFactor()));
 		k.append(depthWrite ? "_w" : "_nw").append('_').append(depthTest.name()).append(alphaWrite ? "" : "_naw");
 		k.append(cull ? "_c" : "_nc").append(alphaTest ? "_at" : "").append(emissive ? "_e" : "").append(overlay ? "_o" : "")
-			.append(colorMask ? "_cm" : "").append(uvAnim ? "_uv" : "");
+			.append(colorMask ? "_cm" : "").append(uvAnim ? "_uv" : "").append(glint ? "_g" : "");
 		return k.toString().toLowerCase(Locale.ROOT);
 	}
 
@@ -190,7 +214,8 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		}
 		return new EntityMaterial(blend, additive, !s.state("DisableDepthWrite"), s.depthTest(), !s.state("DisableAlphaWrite"), !s.state("DisableCulling"),
 			s.define("ALPHA_TEST"),
-			s.define("USE_EMISSIVE"), s.define("USE_OVERLAY"), s.define("USE_COLOR_MASK"), s.define("USE_UV_ANIM"));
+			s.define("USE_EMISSIVE"), s.define("USE_OVERLAY"), s.define("USE_COLOR_MASK"), s.define("USE_UV_ANIM"), s.define("GLINT"),
+			s.sampler(0).linear(), s.sampler(0).clamp());
 	}
 
 	/** A material by name, or the default cut-out one (with a warning) when no file defines it. */

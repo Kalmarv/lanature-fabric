@@ -7,6 +7,7 @@ import java.util.function.BiFunction;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.util.ARGB;
+import net.minecraft.util.Mth;
 import net.minecraft.world.attribute.EnvironmentAttribute;
 import net.minecraft.world.attribute.EnvironmentAttributeLayer;
 import net.minecraft.world.attribute.EnvironmentAttributeSystem;
@@ -30,6 +31,9 @@ import xyz.ivyhq.lanature.client.environment.FogSettings.Distance;
  * of Java's darkening of the fog colour in rain and thunder ({@link #weatherFogColor}), and its distances replace Java's
  * own rain fog (in the atmospheric fog environment, {@link #weather}). Bedrock's own default weather fog is a mid grey
  * that would be nearly black with Java's darkening on top, so the weather colour is taken to stand for it.
+ *
+ * <p>Water fog comes in after the camera goes under by the pack's {@code transition_fog} ({@link #waterFog}), in place
+ * of Java's water vision ramp, which is vanilla Bedrock's.
  */
 public final class PackEnvironment {
 	private static volatile @Nullable Sample cached;
@@ -130,6 +134,47 @@ public final class PackEnvironment {
 			}
 		}
 		return covered <= 0 ? Weather.NONE : new Weather((float) (covered / s.total()), (float) (start / covered), (float) (end / covered));
+	}
+
+	/** The water fog's distances in blocks. */
+	public record WaterFog(float start, float end) {
+	}
+
+	/**
+	 * The water fog at the camera as it comes in, or null where no biome of the average has a pack transition (Java's
+	 * own ramp then stands). Each biome's fog moves from its transition's {@code init_fog} to the averaged distances by
+	 * its own progress after {@code seconds} under water; a biome without a pack transition keeps Java's (the end
+	 * scaled by {@code javaProgress}, the start as it is). Bedrock's own blending of transitions between biomes is not
+	 * documented; this weighs them as the distances are weighed.
+	 *
+	 * @param start the averaged water fog start, before any transition
+	 * @param end the averaged water fog end, before any transition
+	 */
+	public static @Nullable WaterFog waterFog(ClientLevel level, Vec3 camera, float seconds, float javaProgress, float start, float end) {
+		if (!BiomeLooks.active()) {
+			return null;
+		}
+		Sample s = sample(level, camera);
+		float render = renderBlocks();
+		boolean any = false;
+		double fogStart = 0;
+		double fogEnd = 0;
+		for (Reference2DoubleMap.Entry<Biome> e : Reference2DoubleMaps.fastIterable(s.weights())) {
+			BiomeLook look = BiomeLooks.of(e.getKey());
+			Distance water = look == null ? null : look.fog().water();
+			FogSettings.Transition t = water == null ? null : water.transition();
+			double w = e.getDoubleValue();
+			if (t == null) {
+				fogStart += w * start;
+				fogEnd += w * end * javaProgress;
+			} else {
+				any = true;
+				float p = t.progress(seconds);
+				fogStart += w * Mth.lerp(p, t.init().start(render), start);
+				fogEnd += w * Mth.lerp(p, t.init().end(render), end);
+			}
+		}
+		return any ? new WaterFog((float) (fogStart / s.total()), (float) (fogEnd / s.total())) : null;
 	}
 
 	private static <V> void layer(EnvironmentAttributeSystem.Builder builder, ClientLevel level, EnvironmentAttribute<V> attribute,

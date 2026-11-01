@@ -97,18 +97,25 @@ public final class Skeleton {
 	public Matrix4f[] matrices() {
 		int n = geometry.bones().size();
 		Matrix4f[] out = new Matrix4f[n];
-		Matrix3f r = new Matrix3f();
 		for (int b = 0; b < n; b++) {
 			Geometry.Bone bone = geometry.bones().get(b);
 			Matrix4f m = bone.parent() < 0 ? new Matrix4f().scaling(1 / 16F) : new Matrix4f(out[bone.parent()]);
-			Vector3f pivot = bone.pivot();
-			m.translate(pivot.x + position[b][0], pivot.y + position[b][1], pivot.z + position[b][2]);
-			Geometry.rotationMatrix(new Vector3f(rotation[b][0], rotation[b][1], rotation[b][2]), r);
-			m.mul(new Matrix4f().set(r));
-			m.scale(scale[b][0], scale[b][1], scale[b][2]);
-			m.translate(-pivot.x, -pivot.y, -pivot.z);
-			out[b] = m;
+			out[b] = local(m, bone.pivot(), position[b][0], position[b][1], position[b][2], new Vector3f(rotation[b][0], rotation[b][1], rotation[b][2]),
+				scale[b][0], scale[b][1], scale[b][2]);
 		}
 		return out;
+	}
+
+	/** A bone of no parent at rest (its geometry rotation, nothing animated), as {@link #matrices} gives it. */
+	public static Matrix4f restMatrix(Geometry.Bone bone) {
+		return local(new Matrix4f().scaling(1 / 16F), bone.pivot(), 0, 0, 0, bone.rotation(), 1, 1, 1);
+	}
+
+	/** {@code m} followed by a bone's own transform: moved, then turned and scaled about its pivot. */
+	private static Matrix4f local(Matrix4f m, Vector3f pivot, float x, float y, float z, Vector3f rotation, float sx, float sy, float sz) {
+		m.translate(pivot.x + x, pivot.y + y, pivot.z + z);
+		m.mul(new Matrix4f().set(Geometry.rotationMatrix(rotation, new Matrix3f())));
+		m.scale(sx, sy, sz);
+		return m.translate(-pivot.x, -pivot.y, -pivot.z);
 	}
 }

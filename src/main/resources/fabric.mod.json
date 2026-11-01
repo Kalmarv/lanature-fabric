@@ -18,6 +18,7 @@
 		"client": ["xyz.ivyhq.lanature.client.LaNatureClient"],
 		"modmenu": ["xyz.ivyhq.lanature.client.settings.ModMenuIntegration"]
 	},
+	"accessWidener": "lanature.classtweaker",
 	"mixins": [
 		{
 			"config": "lanature.client.mixins.json",

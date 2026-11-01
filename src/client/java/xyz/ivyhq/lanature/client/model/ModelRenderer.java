@@ -9,6 +9,8 @@ import java.util.Map;
 import net.fabricmc.fabric.api.client.rendering.v1.RenderStateDataKey;
 import net.minecraft.client.renderer.OrderedSubmitNodeCollector;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.rendertype.RenderType;
+import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.util.LightCoordsUtil;
 import org.joml.Matrix3f;
 import org.joml.Matrix4f;
@@ -27,8 +29,16 @@ public final class ModelRenderer {
 	private ModelRenderer() {
 	}
 
-	/** Submits the model in the pose stack's frame, at its scale. */
+	/** Submits the model in the pose stack's frame, at its scale, without an outline. */
 	public static void submit(ModelState model, PoseStack poseStack, SubmitNodeCollector collector, int light, int overlay, int color) {
+		submit(model, poseStack, collector, light, overlay, color, 0);
+	}
+
+	/**
+	 * Submits the model in the pose stack's frame, at its scale, and, when {@code outlineColor} is not 0 (a glowing
+	 * entity), its parts again in their materials' outline types in that colour, as Java's {@code submitModel} does.
+	 */
+	public static void submit(ModelState model, PoseStack poseStack, SubmitNodeCollector collector, int light, int overlay, int color, int outlineColor) {
 		poseStack.pushPose();
 		float s = model.scale();
 		poseStack.scale(s, s, s);
@@ -53,6 +63,20 @@ public final class ModelRenderer {
 							overlayCoords, vertexColor);
 					}
 				}));
+			if (outlineColor != 0) {
+				byMaterial.forEach((material, bones) -> {
+					RenderType renderType = material.renderType(draw.texture());
+					RenderType outline = renderType.isOutline() ? renderType : renderType.outline().orElse(null);
+					if (outline != null) {
+						layer.submitCustomGeometry(poseStack, outline, (pose, buffer) -> {
+							for (int b : bones) {
+								emit(draw, material, draw.geometry().bones().get(b), new Matrix4f(pose.pose()).mul(part.bones()[b]), buffer,
+									LightCoordsUtil.FULL_BRIGHT, OverlayTexture.NO_OVERLAY, outlineColor);
+							}
+						});
+					}
+				});
+			}
 		}
 		poseStack.popPose();
 	}

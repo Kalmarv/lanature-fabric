@@ -31,6 +31,9 @@ import xyz.ivyhq.lanature.converter.GeyserBlocks.JavaState;
  * position, from which each face's tile picks by its own cumulative weights: faces sharing a tile always match (both
  * planes of a cross plant), and tiles with different weight tables pick partly independently. Overlaying the tiles'
  * cumulative weights gives the exact set of combinations, one variant per interval.
+ *
+ * <p>A block's item takes its icon the same way, from the textures Bedrock draws the item with: the entry's
+ * {@code carried_textures} where it has them, else its block textures (see {@link #convertItem}).
  */
 public final class BlockConverter {
 	/** Pseudo-slot: the converted block's own Java texture, for borrowed geometry the Bedrock entry leaves untextured. */
@@ -48,6 +51,7 @@ public final class BlockConverter {
 	private final Report report;
 	private final Map<String, String> writtenModels = new HashMap<>();
 	private int blocks;
+	private int items;
 	private int models;
 	private int keptFaces;
 	private final Set<String> keptDetail = new java.util.TreeSet<>();
@@ -73,9 +77,11 @@ public final class BlockConverter {
 	public void run() throws IOException {
 		for (String block : geyser.blocks()) {
 			convertBlock(block);
+			convertItem(block);
 		}
 		keptDetail.forEach(k -> report.info("blocks", "kept vanilla face texture: " + k));
-		report.info("blocks", blocks + " blockstates rewritten, " + models + " models generated, " + keptFaces + " faces kept vanilla (no Bedrock slot shows their texture)");
+		report.info("blocks", blocks + " blockstates and " + items + " block items rewritten, " + models + " models generated, " + keptFaces
+			+ " faces kept vanilla (no Bedrock slot shows their texture)");
 	}
 
 	private Target target(JavaState s) {
@@ -139,6 +145,123 @@ public final class BlockConverter {
 		}
 	}
 
+	/**
+	 * A block's item icon, drawn as Bedrock draws the block's item: with the entry's {@code carried_textures} where
+	 * it has them, else with its block textures, and of a tile's variations the first. A carried texture is a picture
+	 * of its own for the inventory, coloured in (vanilla's carried leaves and lily pad are green where their block
+	 * textures are grey), so an item drawn with one loses Java's tint. Only items the pack's own pictures draw change;
+	 * the rest keep Java's icon.
+	 */
+	private void convertItem(String block) throws IOException {
+		JsonObject def = java.item(block);
+		JavaState s = geyser.defaultState(block);
+		if (def == null || s == null) {
+			return;
+		}
+		Target t = target(s);
+		Effective eff = t.effective();
+		JsonElement carried = eff.entry().get("carried_textures");
+		JsonObject entry = eff.entry().deepCopy();
+		if (carried != null) {
+			entry.add("textures", carried.deepCopy());
+		}
+		// the vanilla entry stays the block's: faces find their slot by the block textures Java's art matches
+		Target item = new Target(new Effective(eff.block(), entry, eff.vanilla(), eff.aliasIndex()), false, s);
+		boolean coloured = carried != null && !carried.equals(eff.entry().get("textures"));
+		JsonObject out = def.deepCopy();
+		if (convertItemModels(block, out, s, item, coloured)) {
+			Json.write(assets.resolve("minecraft/items/" + block + ".json"), out);
+			items++;
+		}
+	}
+
+	/** Rewrites every {@code minecraft:model} node of an item definition; whether any changed. */
+	private boolean convertItemModels(String block, JsonElement node, JavaState s, Target item, boolean coloured) throws IOException {
+		boolean changed = false;
+		if (node.isJsonArray()) {
+			for (JsonElement e : node.getAsJsonArray()) {
+				changed |= convertItemModels(block, e, s, item, coloured);
+			}
+		} else if (node.isJsonObject()) {
+			JsonObject o = node.getAsJsonObject();
+			if (o.get("type") instanceof JsonElement type && "minecraft:model".equals(type.getAsString()) && o.get("model") instanceof JsonElement ref
+				&& ref.isJsonPrimitive()) {
+				String model = convertItemModel(block, ref.getAsString(), s, item);
+				if (model != null) {
+					o.addProperty("model", model);
+					if (coloured) {
+						o.remove("tints");
+					}
+					changed = true;
+				}
+			}
+			for (Map.Entry<String, JsonElement> e : o.entrySet()) {
+				changed |= convertItemModels(block, e.getValue(), s, item, coloured);
+			}
+		}
+		return changed;
+	}
+
+	/** The model an item model is drawn with instead, or null when the pack's pictures do not draw it. */
+	private String convertItemModel(String block, String ref, JavaState s, Target item) throws IOException {
+		JavaAssets.Model m = java.model(ref);
+		if (m == null) {
+			return null;
+		}
+		int index = index(item, s, m);
+		if (!packDraws(item.effective(), index)) {
+			return null;
+		}
+		if (m.elementSource() != null) {
+			JsonObject r = new JsonObject();
+			r.addProperty("model", ref);
+			// the first combination: every tile at its first variation
+			String model = convertRef(block, r, s, item, false).get(0).getAsJsonObject().get("model").getAsString();
+			return model.equals(ref) ? null : model;
+		}
+		// a flat item (item/generated): each layer whose Java texture a Bedrock slot shows takes that slot's picture
+		JsonObject tex = new JsonObject();
+		for (String var : m.textures().keySet()) {
+			String javaTex = var.startsWith("layer") ? m.resolve("#" + var) : null;
+			String slot = matchSlot(item.effective().vanilla(), index, javaTex, "north");
+			String tile = slot == null ? null : BedrockBlocks.slotTile(item.effective().entry(), slot);
+			List<TexOption> opts = tile == null ? null : bedrock.tileOptions(tile, index, true);
+			if (opts == null || opts.isEmpty()) {
+				continue;
+			}
+			String bedrockRef = opts.getFirst().ref();
+			BedrockPack.Resolved first = pack.texture(bedrockRef);
+			if (first == null || !first.fromPack() && identity.same(javaTex, bedrockRef)) {
+				continue;
+			}
+			String id = javaTexture(bedrockRef);
+			if (id != null) {
+				tex.addProperty(var, id);
+			}
+		}
+		if (tex.isEmpty()) {
+			return null;
+		}
+		JsonObject model = new JsonObject();
+		model.addProperty("parent", "minecraft:" + m.path());
+		model.add("textures", tex);
+		return writeModel("item", block, model);
+	}
+
+	/** Whether the pack draws any of an entry's tiles: a tile of its own, or a picture of its own in one. */
+	private boolean packDraws(Effective eff, int index) {
+		for (String tile : BedrockBlocks.tiles(eff.entry())) {
+			if (bedrock.tileFromPack(tile)) {
+				return true;
+			}
+			List<TexOption> opts = bedrock.tileOptions(tile, index, true);
+			if (opts != null && opts.stream().map(o -> pack.texture(o.ref())).anyMatch(r -> r != null && r.fromPack())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static JsonArray asArray(JsonElement e) {
 		if (e.isJsonArray()) {
 			return e.getAsJsonArray();
@@ -151,13 +274,16 @@ public final class BlockConverter {
 	private JsonArray convertRefs(String block, JsonElement refs, JavaState s, Target t) throws IOException {
 		JsonArray out = new JsonArray();
 		for (JsonElement r : asArray(refs)) {
-			out.addAll(convertRef(block, r.getAsJsonObject(), s, t));
+			out.addAll(convertRef(block, r.getAsJsonObject(), s, t, true));
 		}
 		return out;
 	}
 
-	/** One blockstate model reference → the weighted variants that render it the Bedrock way. */
-	private JsonArray convertRef(String block, JsonObject ref, JavaState s, Target t) throws IOException {
+	/**
+	 * One blockstate model reference → the weighted variants that render it the Bedrock way; {@code counted}: faces
+	 * left vanilla go in the report (a blockstate's, not an item's, which repeats its block's).
+	 */
+	private JsonArray convertRef(String block, JsonObject ref, JavaState s, Target t, boolean counted) throws IOException {
 		JsonArray unchanged = new JsonArray();
 		unchanged.add(ref);
 		JavaAssets.Model m = java.model(ref.get("model").getAsString());
@@ -204,7 +330,7 @@ public final class BlockConverter {
 				if (slot == null && geometry != m) {
 					slot = OWN; // borrowed geometry, nothing for this face: the block's own texture, not the template's
 				}
-				if (slot == null) {
+				if (slot == null && counted) {
 					keptFaces++;
 					keptDetail.add(block + " " + var + "=" + javaTex);
 				}
@@ -253,7 +379,7 @@ public final class BlockConverter {
 		int baseWeight = ref.has("weight") ? ref.get("weight").getAsInt() : 1;
 		for (Combination c : combos) {
 			JsonObject model = split ? flattened(geometry, source, tilesByVar, c.choice) : child(geometry, tilesByVar, c.choice);
-			String name = writeModel(block, model);
+			String name = writeModel("block", block, model);
 			JsonObject variant = ref.deepCopy();
 			variant.addProperty("model", name);
 			variant.remove("weight");
@@ -343,14 +469,16 @@ public final class BlockConverter {
 		return null;
 	}
 
-	private String writeModel(String block, JsonObject model) throws IOException {
+	/** Writes a generated model ({@code folder}: {@code block} or {@code item}) once per content, returning its id. */
+	private String writeModel(String folder, String block, JsonObject model) throws IOException {
 		String content = Json.COMPACT.toJson(model);
 		String existing = writtenModels.get(content);
 		if (existing != null) {
 			return existing;
 		}
-		String name = "lanature:block/gen/" + block + "_" + shortHash(content);
-		Json.write(assets.resolve("lanature/models/block/gen/" + block + "_" + shortHash(content) + ".json"), model);
+		String file = folder + "/gen/" + block + "_" + shortHash(content);
+		String name = "lanature:" + file;
+		Json.write(assets.resolve("lanature/models/" + file + ".json"), model);
 		writtenModels.put(content, name);
 		models++;
 		return name;

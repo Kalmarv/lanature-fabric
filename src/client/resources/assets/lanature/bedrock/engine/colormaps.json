@@ -1,0 +1,7 @@
+{
+	"_comment": "Bedrock engine table, not shipped in any pack: the blocks whose tint is a colour map of textures/colormap/ sampled by the biome's climate, by map. Inferred: vanilla Bedrock's birch.png and evergreen.png are each one colour, the very constant Java tints birch (#80A755) and spruce (#619961) leaves with. Java keeps its constant for a block whose map the pack leaves alone.",
+	"blocks": {
+		"minecraft:birch_leaves": "birch",
+		"minecraft:spruce_leaves": "evergreen"
+	}
+}

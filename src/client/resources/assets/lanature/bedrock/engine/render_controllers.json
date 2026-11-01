@@ -1,0 +1,11 @@
+{
+	"_comment": "Bedrock engine table, not shipped in any pack: render controllers vanilla client entities name and no file of the vanilla resource pack defines (the only one in bedrock-samples v1.26.60.5, whose files define 213). The iron golem's draws its body: its other controller, controller.render.iron_golem_cracks, draws only the crack overlays (cracked_none is empty), so this one is inferred to be the default controller, the entity's default geometry, material and texture.",
+	"format_version": "1.8.0",
+	"render_controllers": {
+		"controller.render.iron_golem": {
+			"geometry": "Geometry.default",
+			"materials": [ { "*": "Material.default" } ],
+			"textures": [ "Texture.default" ]
+		}
+	}
+}

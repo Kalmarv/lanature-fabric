@@ -1,0 +1,53 @@
+{
+	"//": "Game events at which the runtime starts a Bedrock effect itself, in place of the Java particles the event spawns: Bedrock starts its effect once where Java spawns a burst, or Bedrock gives one Java particle type's uses to different effects. effect: the effect Bedrock starts there; replaces: the Java particle types Bedrock starts their (Geyser-mapped) effect for only at sites, so they never map particle by particle.",
+	"block_destruct": {
+		"effect": "minecraft:block_destruct",
+		"replaces": ["minecraft:block"],
+		"reason": "Bedrock starts block_destruct once for a broken block (48 particles), a crack while mining, a sprint step, a fall and a brushed flake; Java's other block particles, the warden's digging and the breeze's jumps, are other effects in Bedrock"
+	},
+	"critical_hit": {
+		"effect": "minecraft:critical_hit_emitter",
+		"replaces": ["minecraft:crit"],
+		"reason": "Java's critical hit is a tracking emitter of many crit particles; Bedrock starts critical_hit_emitter once per hit"
+	},
+	"totem": {
+		"effect": "minecraft:totem_particle",
+		"replaces": ["minecraft:totem_of_undying"],
+		"reason": "Java's totem is a tracking emitter of many particles; Bedrock starts totem_particle once per use"
+	},
+	"potion_splash": {
+		"effect": "minecraft:splash_spell_emitter",
+		"replaces": ["minecraft:effect", "minecraft:instant_effect"],
+		"reason": "Java spawns 100 spell particles per splash potion (instant_effect for instant potions); Bedrock starts splash_spell_emitter once per splash. Java's other effect particles are the spectral arrow's trail (the arrow_trail site) and a brown mooshroom's, which stay Java's"
+	},
+	"mace_smash": {
+		"effect": "minecraft:smash_ground_particle",
+		"replaces": ["minecraft:dust_pillar"],
+		"reason": "Java spawns dust pillar particles by the hundred per mace smash; Bedrock starts smash_ground_particle once per smash"
+	},
+	"mace_smash_center": {
+		"effect": "minecraft:smash_ground_particle_center",
+		"replaces": [],
+		"reason": "Bedrock starts smash_ground_particle_center beside smash_ground_particle at each smash"
+	},
+	"status_effect": {
+		"effect": "minecraft:mobspell_emitter",
+		"replaces": [],
+		"reason": "Bedrock starts mobspell_emitter for each swirl of an entity's status effects; Java spawns one entity_effect particle for it"
+	},
+	"status_effect_ambient": {
+		"effect": "minecraft:mobspell_ambient",
+		"replaces": [],
+		"reason": "Bedrock starts mobspell_ambient for each swirl of ambient effects (a beacon's, a conduit's); Java spawns one faint entity_effect particle for it"
+	},
+	"arrow_trail": {
+		"effect": "minecraft:arrow_spell_emitter",
+		"replaces": [],
+		"reason": "Bedrock starts arrow_spell_emitter for the trail of a tipped and of a spectral arrow; Java spawns one entity_effect (tipped) or effect (spectral) particle for each"
+	},
+	"lingering_cloud": {
+		"effect": "minecraft:mobspell_lingering",
+		"replaces": [],
+		"reason": "Bedrock starts mobspell_lingering for a lingering potion's cloud; Java spawns its entity_effect particles over the cloud each tick"
+	}
+}

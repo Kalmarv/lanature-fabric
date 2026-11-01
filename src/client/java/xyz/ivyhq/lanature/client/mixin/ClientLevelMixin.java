@@ -2,22 +2,29 @@ package xyz.ivyhq.lanature.client.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import net.minecraft.client.multiplayer.ClientLevel;
 import java.util.List;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.attribute.EnvironmentAttributeLayer;
 import net.minecraft.world.attribute.EnvironmentAttributeSystem;
 import net.minecraft.world.attribute.EnvironmentAttributes;
-import org.joml.Vector3fc;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
+import org.joml.Vector3fc;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import xyz.ivyhq.lanature.client.environment.BiomeLooks;
 import xyz.ivyhq.lanature.client.environment.PackEnvironment;
+import xyz.ivyhq.lanature.client.particle.SiteEffects;
 
 /**
  * Puts the pack's biome layers into the client level's environment attributes between Java's static layers
  * (dimension, biome) and its dynamic ones (time of day, weather), hands the fog colour in rain to the pack's weather
- * fogs, and binds the pack's biome looks to the level's biomes.
+ * fogs, and binds the pack's biome looks to the level's biomes. A broken block and the cracks of one being mined
+ * start the pack's block effect in place of Java's terrain particles.
  */
 @Mixin(ClientLevel.class)
 @SuppressWarnings("unchecked")
@@ -39,5 +46,19 @@ abstract class ClientLevelMixin {
 			}
 		}
 		return builder;
+	}
+
+	@Inject(method = "addDestroyBlockEffect", at = @At("HEAD"), cancellable = true)
+	private void lanature$destroy(BlockPos pos, BlockState state, CallbackInfo ci) {
+		if (SiteEffects.destroy((ClientLevel) (Object) this, pos, state)) {
+			ci.cancel();
+		}
+	}
+
+	@Inject(method = "addBreakingParticles", at = @At("HEAD"), cancellable = true)
+	private void lanature$crack(BlockPos pos, Direction direction, BlockState state, CallbackInfo ci) {
+		if (SiteEffects.crack((ClientLevel) (Object) this, pos, direction, state)) {
+			ci.cancel();
+		}
 	}
 }

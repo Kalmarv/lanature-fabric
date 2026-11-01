@@ -21,6 +21,7 @@ import java.util.stream.Stream;
  * --minecraft-jar PATH   the Minecraft client jar (vanilla Java assets)
  * --block-report PATH    Minecraft's generated reports/blocks.json (block state ids)
  * --asset-index PATH     Minecraft's asset index (the sound files Java ships)
+ * --engine DIR           the runtime's built-in Bedrock engine tables (bedrock/engine/ in the client resources)
  * --out DIR              output resource root (assets/ goes inside)
  * </pre>
  */
@@ -62,21 +63,30 @@ public final class Main {
 		new BlockConverter(pack, bedrockBlocks, geyser, java, identity, textures,
 			resource("blockshapes.json"), resource("legacy_data.json"), assets, report).run();
 
+		Path engine = Path.of(require(opts, "--engine"));
 		new PathOverrides(pack, identity, java, assets, report).run();
+		PotionModels.run(pack, java, resource("potion_textures.json"), assets, report);
+		EndPortalColors.run(pack, java, assets, report);
+		WeatherSheets.run(pack, java, assets, report);
+		Colormaps.run(pack, identity, vanilla, json(engine.resolve("colormaps.json")), assets, report);
 		BindPoses bindPoses = new BindPoses(FileTree.read(refs.resolve("bedrock-samples-1.21.0.3")).sub("resource_pack/models"), report);
-		RuntimeExporter runtime = new RuntimeExporter(pack, textures, bindPoses, assets, report);
+		RuntimeExporter runtime = new RuntimeExporter(pack, textures, bindPoses,
+			json(engine.resolve("render_controllers.json")).getAsJsonObject("render_controllers").keySet(), assets, report);
 		runtime.run();
 		RuntimeExporter.vanillaEntityMaterials(refs.resolve("bridge-vanilla/static/vanilla/RP/materials/entity.material"), assets, report);
-		BlockNames.run(geyser, runtime.blockNames(), assets, report);
+		BlockNames.run(geyser, runtime.blockNames(), BlockNames.vanillaBlocks(samples.get("metadata/vanilladata_modules/mojang-blocks.json")), assets, report);
 		EntityScales.run(pack, samples.sub("behavior_pack/entities"), assets, report);
+		Path assetIndex = Path.of(require(opts, "--asset-index"));
 		new SoundConverter(pack, json(refs.resolve("geyser-mappings/sounds.json")),
 			json(refs.resolve("pack-converter/converter/src/main/resources/mappings/sounds.json")),
-			SoundConverter.javaSounds(json(Path.of(require(opts, "--asset-index")))), assets, report).run();
+			SoundConverter.javaSounds(json(assetIndex)), SoundConverter.javaEvents(assetIndex), assets, report).run();
 		LangConverter.run(pack, assets, report);
 		PackIcon.run(pack, assets, report);
-		Triggers.run(json(refs.resolve("geyser-mappings/particles.json")), resource("particle_events.json"), resource("trigger_skip.json"), packEffects(pack), assets, report);
+		Triggers.run(json(refs.resolve("geyser-mappings/particles.json")), resource("particle_events.json"), resource("trigger_sites.json"),
+			resource("trigger_skip.json"), packEffects(pack), assets, report);
 
 		BiomeTags.run(samples, json(refs.resolve("geyser-mappings/biomes.json")), resource("biome_names.json"), assets, report);
+		BedrockItems.run(json(refs.resolve("geyser-mappings/items.json")), Nbt.readCompressed(refs.resolve("geyser-mappings/item_components.nbt")), assets, report);
 
 		report.write(out.resolve("lanature-conversion-report.txt"));
 	}

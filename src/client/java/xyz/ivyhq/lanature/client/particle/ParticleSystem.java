@@ -14,6 +14,7 @@ import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ItemParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.data.AtlasIds;
@@ -23,6 +24,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import org.joml.Vector3f;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import xyz.ivyhq.lanature.molang.Scope;
@@ -46,6 +48,7 @@ public final class ParticleSystem {
 	final Random random = new Random();
 	private Map<String, ParticleEffect> effects = Map.of();
 	private Map<Identifier, String> triggers = Map.of();
+	private Map<String, String> sites = Map.of();
 	private Map<String, SoundEntry> sounds = Map.of();
 	private final List<Emitter> emitters = new ArrayList<>();
 	private final List<Emitter> added = new ArrayList<>();
@@ -72,9 +75,10 @@ public final class ParticleSystem {
 	}
 
 	/** Replaces the loaded definitions (on resource reload); running emitters are dropped. */
-	public void load(Map<String, ParticleEffect> effects, Map<Identifier, String> triggers, Map<String, SoundEntry> sounds) {
+	public void load(Map<String, ParticleEffect> effects, Map<Identifier, String> triggers, Map<String, String> sites, Map<String, SoundEntry> sounds) {
 		this.effects = effects;
 		this.triggers = triggers;
+		this.sites = sites;
 		this.sounds = sounds;
 		clear();
 	}
@@ -85,6 +89,11 @@ public final class ParticleSystem {
 
 	public boolean hasEffect(String id) {
 		return effects.containsKey(id);
+	}
+
+	/** The pack effect Bedrock starts at a game-event site (the trigger table's {@code sites}), or null to leave Java's particles. */
+	@Nullable String siteEffect(String site) {
+		return level == null ? null : sites.get(site);
 	}
 
 	public void clear() {
@@ -160,8 +169,8 @@ public final class ParticleSystem {
 		return e;
 	}
 
-	/** Starts an effect at a locator of an entity's model (Java model axes, blocks), turning with the entity's body. */
-	public Emitter spawnOnEntity(String effect, Entity entity, Vector3f locator, Variables preset) {
+	/** Starts an effect at a locator of an entity's model, following it as the entity moves, turns and animates. */
+	public Emitter spawnOnEntity(String effect, Entity entity, Emitter.Locator locator, Variables preset) {
 		ParticleEffect fx = effects.get(effect);
 		if (fx == null || level == null) {
 			return null;
@@ -204,7 +213,9 @@ public final class ParticleSystem {
 		Emitter parent = source.emitter();
 		boolean bound = spawn.type() == Event.SpawnType.EMITTER_BOUND;
 		boolean particle = spawn.type() == Event.SpawnType.PARTICLE || spawn.type() == Event.SpawnType.PARTICLE_WITH_VELOCITY;
-		Emitter child = create(fx, source.worldX(), source.worldY(), source.worldZ(), bound ? parent.entity : null, particle);
+		Emitter.Locator locator = bound && parent.entity != null ? parent.boundLocator(source.worldX(), source.worldY(), source.worldZ()) : null;
+		Emitter child = locator != null ? new Emitter(this, fx, parent.entity, locator, particle)
+			: create(fx, source.worldX(), source.worldY(), source.worldZ(), bound ? parent.entity : null, particle);
 		if (bound) {
 			child.rotation.set(parent.rotation);
 		}
@@ -250,12 +261,19 @@ public final class ParticleSystem {
 		if (effect == null) {
 			return false;
 		}
+		Variables preset = new Variables();
+		if (options instanceof ItemParticleOption item) {
+			// the item's picture picks the effect: Bedrock's icon effect, or its terrain one for a block-drawn item
+			effect = PictureEffects.item(level, item, preset);
+			if (effect == null) {
+				return false;
+			}
+		}
 		ParticleEffect fx = effects.get(effect);
 		Seed seed = fx != null && fx.blockSeed() ? new Seed(effect, BlockPos.asLong(Mth.floor(x), Mth.floor(y), Mth.floor(z))) : null;
 		if (seed != null && seeds.containsKey(seed)) {
 			return true;
 		}
-		Variables preset = new Variables();
 		TriggerVariables.fill(options, xa, ya, za, preset);
 		Emitter e = spawn(effect, x, y, z, null, preset);
 		if (e != null && seed != null && !e.done()) {
@@ -343,13 +361,20 @@ public final class ParticleSystem {
 		TextureAtlas atlas = Minecraft.getInstance().getAtlasManager().getAtlasOrThrow(AtlasIds.PARTICLES);
 		billboards.begin(camera, frustum, partialTick, level);
 		for (Emitter e : emitters) {
-			TextureAtlasSprite sprite = e.fx.texture == null ? atlas.missingSprite() : atlas.getSprite(e.fx.texture);
 			if (!e.fx.billboard) {
 				continue;
 			}
+			// an effect on the block or item atlas reads it whole, at the UVs the engine handed it, and one drawing its
+			// texture on its own reads that whole
+			TextureAtlasSprite sprite = e.fx.atlas != ParticleEffect.Atlas.PARTICLES || e.fx.standalone ? null
+				: e.fx.texture == null ? atlas.missingSprite() : atlas.getSprite(e.fx.texture);
+			float u0 = sprite == null ? 0 : sprite.getU0();
+			float v0 = sprite == null ? 0 : sprite.getV0();
+			float u1 = sprite == null ? 1 : sprite.getU1();
+			float v1 = sprite == null ? 1 : sprite.getV1();
 			for (BedrockParticle p : e.particles) {
 				if (!p.expired) {
-					billboards.render(p, sprite, renderState);
+					billboards.render(p, u0, v0, u1, v1, renderState);
 				}
 			}
 		}

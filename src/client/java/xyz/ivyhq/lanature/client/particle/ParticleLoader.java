@@ -18,9 +18,14 @@ public final class ParticleLoader {
 	private ParticleLoader() {
 	}
 
-	public record Result(Map<String, ParticleEffect> effects, Map<Identifier, String> triggers, Map<String, ParticleSystem.SoundEntry> sounds) {
+	/**
+	 * {@code triggers}: Java particle type → the pack effect started for each such particle; {@code sites}: game-event
+	 * site → the pack effect Bedrock starts there (see {@link SiteEffects}).
+	 */
+	public record Result(Map<String, ParticleEffect> effects, Map<Identifier, String> triggers, Map<String, String> sites,
+		Map<String, ParticleSystem.SoundEntry> sounds) {
 		public void apply() {
-			ParticleSystem.get().load(effects, triggers, sounds);
+			ParticleSystem.get().load(effects, triggers, sites, sounds);
 		}
 	}
 
@@ -36,11 +41,11 @@ public final class ParticleLoader {
 				LOGGER.warn("Skipping a particle effect that does not load", e);
 			}
 		}
-		Map<Identifier, String> triggers = new HashMap<>();
-		triggerTable.entrySet().forEach(e -> {
-			Identifier id = Identifier.tryParse(e.getKey());
-			if (id != null && effects.containsKey(e.getValue().getAsString())) {
-				triggers.put(id, e.getValue().getAsString());
+		Map<Identifier, String> triggers = types(triggerTable.getAsJsonObject("particles"), effects);
+		Map<String, String> sites = new HashMap<>();
+		triggerTable.getAsJsonObject("sites").entrySet().forEach(e -> {
+			if (effects.containsKey(e.getValue().getAsString())) {
+				sites.put(e.getKey(), e.getValue().getAsString());
 			}
 		});
 		Map<String, ParticleSystem.SoundEntry> sounds = new HashMap<>();
@@ -50,7 +55,21 @@ public final class ParticleLoader {
 			double[] pitch = range(o.get("pitch"));
 			sounds.put(e.getKey(), new ParticleSystem.SoundEntry(Identifier.parse(o.get("sound").getAsString()), volume[0], volume[1], pitch[0], pitch[1]));
 		});
-		return new Result(Map.copyOf(effects), Map.copyOf(triggers), Map.copyOf(sounds));
+		return new Result(Map.copyOf(effects), Map.copyOf(triggers), Map.copyOf(sites), Map.copyOf(sounds));
+	}
+
+	/** A table of Java particle type → effect, keeping the effects that loaded. */
+	private static Map<Identifier, String> types(JsonObject table, Map<String, ParticleEffect> effects) {
+		Map<Identifier, String> out = new HashMap<>();
+		if (table != null) {
+			table.entrySet().forEach(e -> {
+				Identifier id = Identifier.tryParse(e.getKey());
+				if (id != null && effects.containsKey(e.getValue().getAsString())) {
+					out.put(id, e.getValue().getAsString());
+				}
+			});
+		}
+		return out;
 	}
 
 	private static double[] range(JsonElement e) {

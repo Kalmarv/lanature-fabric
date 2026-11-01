@@ -4,6 +4,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -30,10 +33,14 @@ public final class RuntimeExporter {
 	private final BindPoses bindPoses;
 	private final Path assets;
 	private final Report report;
+	/** Render controllers the engine defines itself ({@code bedrock/engine/render_controllers.json}). */
+	private final Set<String> engineRenderControllers;
 	/** Bedrock block names the particles test for ({@code particle_expire_if_[not_]in_blocks}). */
 	private final Set<String> blockNames = new java.util.TreeSet<>();
 
-	public RuntimeExporter(BedrockPack pack, TextureExporter textures, BindPoses bindPoses, Path assets, Report report) {
+	public RuntimeExporter(BedrockPack pack, TextureExporter textures, BindPoses bindPoses, Set<String> engineRenderControllers, Path assets,
+		Report report) {
+		this.engineRenderControllers = engineRenderControllers;
 		this.pack = pack;
 		this.textures = textures;
 		this.bindPoses = bindPoses;
@@ -57,9 +64,10 @@ public final class RuntimeExporter {
 				particleIds.add(description(e.getValue()).get("identifier").getAsString());
 			}
 		}
-		vanillaParticles(particleIds, definitions);
 		vanillaFogs(definitions);
+		vanillaWater(definitions);
 		int entityTextures = entityModels(definitions);
+		vanillaParticles(particleIds, definitions);
 		int textured = 0;
 		for (Map.Entry<String, JsonElement> e : definitions.entrySet()) {
 			if (e.getKey().startsWith("particles/") || e.getKey().startsWith("vanilla/particles/")) {
@@ -106,14 +114,19 @@ public final class RuntimeExporter {
 
 	/**
 	 * Exports an effect's texture into the particle atlas and replaces its {@code texture} path with the sprite id
-	 * ({@code lanature:bedrock/<path>}: the atlas's {@code particle} directory source drops that prefix).
+	 * ({@code lanature:bedrock/<path>}: the atlas's {@code particle} directory source drops that prefix). Bedrock's
+	 * block and item atlases ({@code atlas.terrain}, {@code atlas.items}) stay named.
 	 */
 	private boolean particleSprite(JsonElement effect) throws IOException {
 		JsonObject params = description(effect).getAsJsonObject("basic_render_parameters");
 		if (params == null || !params.has("texture")) {
 			return false;
 		}
-		String id = textures.export(params.get("texture").getAsString(), "particle/bedrock");
+		String texture = params.get("texture").getAsString();
+		if (texture.equals("atlas.terrain") || texture.equals("atlas.items")) {
+			return true; // the block or item atlas, which the runtime reads as Java's
+		}
+		String id = textures.export(texture, "particle/bedrock");
 		if (id == null) {
 			params.remove("texture");
 			return false;
@@ -122,7 +135,11 @@ public final class RuntimeExporter {
 		return true;
 	}
 
-	/** Vanilla effects the pack's events spawn but does not define, so every event resolves. */
+	/**
+	 * Vanilla effects the pack starts but does not define, so every one resolves: those its particle events spawn and
+	 * its client entities and attachables (and the vanilla definitions exported for them) name in
+	 * {@code particle_effects}, and the effects those vanilla ones spawn in turn.
+	 */
 	private void vanillaParticles(Set<String> defined, Map<String, JsonElement> definitions) {
 		Map<String, String> vanilla = new HashMap<>();
 		for (String path : pack.vanilla.paths("particles/")) {
@@ -130,22 +147,46 @@ public final class RuntimeExporter {
 				vanilla.put(description(Json.parse(pack.vanilla.get(path))).get("identifier").getAsString(), path);
 			}
 		}
-		Set<String> wanted = new LinkedHashSet<>();
+		Deque<String> wanted = new ArrayDeque<>();
 		definitions.forEach((path, json) -> {
-			if (path.startsWith("particles/")) {
+			String folder = path.replaceFirst("^vanilla/", "");
+			if (folder.startsWith("particles/")) {
 				collectEffects(json.getAsJsonObject().getAsJsonObject("particle_effect").get("events"), wanted);
+			} else if (folder.startsWith("entity/") || folder.startsWith("attachables/")) {
+				namedEffects(json, wanted);
 			}
 		});
-		for (String id : wanted) {
-			if (defined.contains(id)) {
+		Set<String> seen = new HashSet<>();
+		Set<String> added = new java.util.TreeSet<>();
+		while (!wanted.isEmpty()) {
+			String id = wanted.poll();
+			if (!seen.add(id) || defined.contains(id)) {
 				continue;
 			}
 			String path = vanilla.get(id);
 			if (path == null) {
-				report.warn("runtime", "event spawns undefined effect " + id);
+				// the pack names effects that neither it nor vanilla defines; Bedrock spawns nothing for them, as the runtime does
+				report.info("runtime", "the pack starts " + id + ", which neither it nor vanilla defines; nothing spawns, as in Bedrock");
 				continue;
 			}
-			definitions.put("vanilla/" + TextureExporter.sanitize(path), Json.parse(pack.vanilla.get(path)));
+			JsonElement json = Json.parse(pack.vanilla.get(path));
+			definitions.put("vanilla/" + TextureExporter.sanitize(path), json);
+			added.add(id);
+			collectEffects(json.getAsJsonObject().getAsJsonObject("particle_effect").get("events"), wanted);
+		}
+		report.info("runtime", added.size() + " vanilla effects the pack starts but does not define: " + added);
+	}
+
+	/** The effects a client entity or attachable names in its description's {@code particle_effects}. */
+	private static void namedEffects(JsonElement definition, Collection<String> out) {
+		if (!definition.isJsonObject()) {
+			return;
+		}
+		for (Map.Entry<String, JsonElement> root : definition.getAsJsonObject().entrySet()) {
+			if (root.getValue().isJsonObject() && root.getValue().getAsJsonObject().get("description") instanceof JsonObject description
+				&& description.get("particle_effects") instanceof JsonObject effects) {
+				effects.entrySet().forEach(e -> out.add(e.getValue().getAsString()));
+			}
 		}
 	}
 
@@ -159,9 +200,9 @@ public final class RuntimeExporter {
 	private static final Kind CONTROLLERS = new Kind("animation_controllers/", "animation_controllers");
 
 	/**
-	 * What the pack's client entities need to draw their models: the vanilla geometry (with the parents legacy
+	 * What the pack's client entities and attachables (held items' models) need to draw their models: the vanilla geometry (with the parents legacy
 	 * geometry inherits), render controllers, animations and animation controllers they name but the pack does not
-	 * define, under {@code vanilla/}, and their textures, exported as standalone textures with each entity's
+	 * define, under {@code vanilla/}, and their textures, exported as standalone textures with each definition's
 	 * {@code textures} entry rewritten to the Java texture id. Returns the number of textures exported.
 	 */
 	private int entityModels(Map<String, JsonElement> definitions) throws IOException {
@@ -171,10 +212,12 @@ public final class RuntimeExporter {
 		}
 		int exportedTextures = 0;
 		for (Map.Entry<String, JsonElement> e : definitions.entrySet()) {
-			if (!e.getKey().startsWith("entity/")) {
+			String rootKey = e.getKey().startsWith("entity/") ? "minecraft:client_entity"
+				: e.getKey().startsWith("attachables/") ? "minecraft:attachable" : null;
+			if (rootKey == null) {
 				continue;
 			}
-			JsonObject root = e.getValue().getAsJsonObject().getAsJsonObject("minecraft:client_entity");
+			JsonObject root = e.getValue().getAsJsonObject().getAsJsonObject(rootKey);
 			JsonObject desc = root == null ? null : root.getAsJsonObject("description");
 			if (desc == null) {
 				continue;
@@ -230,7 +273,9 @@ public final class RuntimeExporter {
 				}
 				String path = vanilla.get(id);
 				if (path == null) {
-					if (kind == GEOMETRY || kind == RENDER_CONTROLLERS) {
+					if (kind == RENDER_CONTROLLERS && engineRenderControllers.contains(id)) {
+						report.info("runtime", id + " is the engine's own (bedrock/engine/render_controllers.json)");
+					} else if (kind == GEOMETRY || kind == RENDER_CONTROLLERS) {
 						report.warn("runtime", "entities name undefined " + id);
 					}
 					continue;
@@ -354,7 +399,30 @@ public final class RuntimeExporter {
 		}
 	}
 
-	private static void collectEffects(JsonElement node, Set<String> out) {
+	/**
+	 * Vanilla's water surface transparencies, which the pack's are measured against (on Java, vanilla's water is the
+	 * game's own): its {@code biomes_client.json} as {@code vanilla/biomes_client.json}, and the vanilla client biomes
+	 * that set one ({@code minecraft:water_appearance} {@code surface_opacity}) under {@code vanilla/biomes/}.
+	 */
+	private void vanillaWater(Map<String, JsonElement> definitions) {
+		byte[] legacy = pack.vanilla.get("biomes_client.json");
+		if (legacy != null) {
+			definitions.put("vanilla/biomes_client.json", Json.parse(legacy));
+		}
+		for (String path : pack.vanilla.paths("biomes/")) {
+			if (!path.endsWith(".json")) {
+				continue;
+			}
+			JsonElement json = Json.parse(pack.vanilla.get(path));
+			JsonObject components = json.getAsJsonObject().getAsJsonObject("minecraft:client_biome").getAsJsonObject("components");
+			JsonObject water = components == null ? null : components.getAsJsonObject("minecraft:water_appearance");
+			if (water != null && water.has("surface_opacity")) {
+				definitions.put("vanilla/" + TextureExporter.sanitize(path), json);
+			}
+		}
+	}
+
+	private static void collectEffects(JsonElement node, Collection<String> out) {
 		if (node == null) {
 			return;
 		}

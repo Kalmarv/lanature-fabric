@@ -1,0 +1,29 @@
+{
+	"_comment": "Bedrock draws each potion as a picture of its own, named by its effect (textures/items/potion_bottle_<effect>, potion_bottle_splash_<effect>, potion_bottle_lingering_<effect>); Java tints one bottle overlay. Java potion id -> Bedrock texture effect name, from Bedrock's texture lists in item_texture.json (which name the effects, longer and stronger variants sharing their base's picture). water, mundane, thick and awkward have no effect and use the plain bottle; luck has no Bedrock potion.",
+	"items": {
+		"potion": "potion_bottle_",
+		"splash_potion": "potion_bottle_splash_",
+		"lingering_potion": "potion_bottle_lingering_"
+	},
+	"potions": {
+		"night_vision": "nightVision", "long_night_vision": "nightVision",
+		"invisibility": "invisibility", "long_invisibility": "invisibility",
+		"leaping": "jump", "long_leaping": "jump", "strong_leaping": "jump",
+		"fire_resistance": "fireResistance", "long_fire_resistance": "fireResistance",
+		"swiftness": "moveSpeed", "long_swiftness": "moveSpeed", "strong_swiftness": "moveSpeed",
+		"slowness": "moveSlowdown", "long_slowness": "moveSlowdown", "strong_slowness": "moveSlowdown",
+		"turtle_master": "turtleMaster", "long_turtle_master": "turtleMaster", "strong_turtle_master": "turtleMaster",
+		"water_breathing": "waterBreathing", "long_water_breathing": "waterBreathing",
+		"healing": "heal", "strong_healing": "heal",
+		"harming": "harm", "strong_harming": "harm",
+		"poison": "poison", "long_poison": "poison", "strong_poison": "poison",
+		"regeneration": "regeneration", "long_regeneration": "regeneration", "strong_regeneration": "regeneration",
+		"strength": "damageBoost", "long_strength": "damageBoost", "strong_strength": "damageBoost",
+		"weakness": "weakness", "long_weakness": "weakness",
+		"slow_falling": "slowFall", "long_slow_falling": "slowFall",
+		"wind_charged": "windCharged",
+		"weaving": "weaving",
+		"oozing": "oozing",
+		"infested": "infested"
+	}
+}

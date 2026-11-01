@@ -7,10 +7,8 @@
 
 uniform sampler2D Sampler0;
 
-// Bedrock's particle materials: ALPHA_TEST cuts out at half alpha, others keep faint texels; NO_FOG skips fog.
-#ifndef ALPHA_CUTOFF
-#define ALPHA_CUTOFF 0.004
-#endif
+// Bedrock's particle materials: ALPHA_TEST cuts out texels under half the texture's alpha, before the tint, and draws
+// the rest at full alpha (the tint's alpha unused); without it only near-transparent fragments go. NO_FOG skips fog.
 
 layout(location = 0) in float sphericalVertexDistance;
 layout(location = 1) in float cylindricalVertexDistance;
@@ -39,10 +37,18 @@ vec4 calculateFinalColor(vec4 color) {
 }
 
 void main() {
-    vec4 color = texture(Sampler0, texCoord0) * vertexColor * ColorModulator;
-    if (color.a < ALPHA_CUTOFF) {
+    vec4 texel = texture(Sampler0, texCoord0);
+    #ifdef ALPHA_TEST
+    if (texel.a < 0.5) {
         discard;
     }
+    vec4 color = vec4((texel * vertexColor * ColorModulator).rgb, 1.0);
+    #else
+    vec4 color = texel * vertexColor * ColorModulator;
+    if (color.a < 0.004) {
+        discard;
+    }
+    #endif
     #ifdef OIT_ALPHA_ONLY
     executeAlphaOnlyPhase(gl_FragCoord.z, color.a);
     #else

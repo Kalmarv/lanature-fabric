@@ -3,9 +3,9 @@ package xyz.ivyhq.lanature.client.particle;
 import net.minecraft.client.Camera;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.culling.Frustum;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.ARGB;
+import net.minecraft.util.Mth;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
@@ -47,7 +47,11 @@ final class Billboards {
 		camUp.set(camera.upVector());
 	}
 
-	void render(BedrockParticle p, TextureAtlasSprite sprite, BedrockParticleRenderState out) {
+	/**
+	 * One particle's quad; the effect's texture is the region {@code (su0, sv0)–(su1, sv1)} of its atlas (its sprite,
+	 * or the whole atlas for an effect that reads the block or item atlas).
+	 */
+	void render(BedrockParticle p, float su0, float sv0, float su1, float sv1, BedrockParticleRenderState out) {
 		Emitter e = p.emitter;
 		ParticleEffect fx = e.fx;
 		double wx = p.prevX + (p.x - p.prevX) * partial;
@@ -119,17 +123,17 @@ final class Billboards {
 			uw = v2[0];
 			vh = v2[1];
 		}
-		float u0 = sprite.getU((float) Math.clamp(u / fx.textureWidth, 0, 1));
-		float u1 = sprite.getU((float) Math.clamp((u + uw) / fx.textureWidth, 0, 1));
-		float v0 = sprite.getV((float) Math.clamp(v / fx.textureHeight, 0, 1));
-		float v1 = sprite.getV((float) Math.clamp((v + vh) / fx.textureHeight, 0, 1));
+		float u0 = Mth.lerp((float) Math.clamp(u / fx.textureWidth, 0, 1), su0, su1);
+		float u1 = Mth.lerp((float) Math.clamp((u + uw) / fx.textureWidth, 0, 1), su0, su1);
+		float v0 = Mth.lerp((float) Math.clamp(v / fx.textureHeight, 0, 1), sv0, sv1);
+		float v1 = Mth.lerp((float) Math.clamp((v + vh) / fx.textureHeight, 0, 1), sv0, sv1);
 
 		int color = color(fx, s);
 		if (ARGB.alpha(color) == 0) {
 			return;
 		}
 		int light = fx.lighting ? LightCoordsUtil.getLightCoords(level, BlockPos.containing(wx, wy, wz)) : LightCoordsUtil.FULL_BRIGHT;
-		out.add(fx.material.layer(), corners, u0, v0, u1, v1, color, light);
+		out.add(fx.material.layer(fx.drawTexture()), corners, u0, v0, u1, v1, color, light);
 	}
 
 	private void corner(int i, float x, float y, float z, float a, float b) {

@@ -1,0 +1,15 @@
+accessWidener v2 official
+
+# a biome's downfall, which Bedrock's colour maps are sampled by (with its temperature), as Java samples its own
+accessible class net/minecraft/world/level/biome/Biome$ClimateSettings
+accessible field net/minecraft/world/level/biome/Biome climateSettings Lnet/minecraft/world/level/biome/Biome$ClimateSettings;
+
+# how long an item's cooldown has left, for q.cooldown_time_remaining (Java exposes only the fraction left)
+accessible class net/minecraft/world/item/ItemCooldowns$CooldownInstance
+accessible field net/minecraft/world/item/ItemCooldowns cooldowns Ljava/util/Map;
+accessible field net/minecraft/world/item/ItemCooldowns tickCount I
+
+# a fishing hook's state, which the client runs too: Bedrock's hook floats still on the water where Java's bobs
+accessible class net/minecraft/world/entity/projectile/FishingHook$FishHookState
+accessible field net/minecraft/world/entity/projectile/FishingHook currentState Lnet/minecraft/world/entity/projectile/FishingHook$FishHookState;
+accessible field net/minecraft/world/entity/projectile/FishingHook biting Z

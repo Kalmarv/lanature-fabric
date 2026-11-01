@@ -18,7 +18,8 @@ fetch() { # name url commit [sparse paths...]
 	echo "$name $(git -C "$dir" rev-parse --short HEAD)"
 }
 
-fetch bedrock-samples https://github.com/Mojang/bedrock-samples.git 15701fa9c13923f12662984c32c124327e40e3d3 resource_pack behavior_pack/biomes behavior_pack/entities
+fetch bedrock-samples https://github.com/Mojang/bedrock-samples.git 15701fa9c13923f12662984c32c124327e40e3d3 resource_pack behavior_pack/biomes behavior_pack/entities \
+	metadata/vanilladata_modules
 # the last samples release whose entity geometry still carries bind_pose_rotation (v1.21.0.3); see BindPoses
 fetch bedrock-samples-1.21.0.3 https://github.com/Mojang/bedrock-samples.git c989e80c35508d658eb4a11932a04382feee4217 resource_pack/models
 # the last vanilla entity.material shipped in a resource pack (1.16.100 beta), in bridge.'s copy of the vanilla pack

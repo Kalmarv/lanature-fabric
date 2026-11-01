@@ -109,4 +109,24 @@ class MolangTest {
 		Functions.registerNumericQuery("lanature_test_query", (s, a) -> a[0].eval(s) * 10);
 		assertEquals(21, Molang.eval(n, scope()));
 	}
+
+	@Test
+	void arrowReadsTheTargetsPublicVariablesOnly() {
+		Variables owner = new Variables();
+		owner.set("attack_time", 0.5);
+		owner.set("secret", 3.0);
+		VariableHost host = () -> Variables.view(owner, java.util.Set.of("attack_time"));
+		Scope s = scope();
+		s.variables.set("attack_time", 0.25);
+		s.context.set("owning_entity", host);
+		assertEquals(0.5, eval("c.owning_entity->v.attack_time", s));
+		assertEquals(0, eval("c.owning_entity->v.secret", s));
+		// the scope's own variables are back after the arrow, and a write through it does not reach the owner
+		assertEquals(0.75, eval("c.owning_entity->v.attack_time + v.attack_time", s));
+		eval("c.owning_entity->(v.attack_time = 9)", s);
+		assertEquals(0.5, owner.get("attack_time"));
+		// a target without scripts shows no variables
+		s.context.set("owning_entity", "not a host");
+		assertEquals(0, eval("c.owning_entity->v.attack_time", s));
+	}
 }

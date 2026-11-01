@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 public final class Functions {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/molang");
 	private static final Map<String, Node.Function> MATH = new HashMap<>();
+	private static final Map<String, DoubleUnaryOperator> EASES = new HashMap<>();
 	private static final Map<String, QuerySlot> QUERIES = new ConcurrentHashMap<>();
 	private static final Random FALLBACK_RANDOM = new Random();
 
@@ -80,12 +81,13 @@ public final class Functions {
 	}
 
 	private static void ease(String name, DoubleUnaryOperator curve) {
-		MATH.put(name, (s, a) -> {
-			double start = arg(s, a, 0);
-			double end = arg(s, a, 1);
-			double t = Math.clamp(arg(s, a, 2), 0, 1);
-			return start + (end - start) * curve.applyAsDouble(t);
-		});
+		EASES.put(name, curve);
+		MATH.put(name, (s, a) -> ease(name, arg(s, a, 0), arg(s, a, 1), arg(s, a, 2)));
+	}
+
+	/** {@code math.<name>(start, end, t)} of an easing function ({@code ease_out_circ}...), for engine code that mirrors a script. */
+	public static double ease(String name, double start, double end, double t) {
+		return start + (end - start) * EASES.get(name).applyAsDouble(Math.clamp(t, 0, 1));
 	}
 
 	/** In, out and in-out variants of an easing curve given as its "in" form. */

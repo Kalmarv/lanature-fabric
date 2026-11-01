@@ -11,6 +11,7 @@ import java.util.TreeMap;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.item.Item;
 import org.joml.Vector3f;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -27,12 +28,18 @@ import xyz.ivyhq.lanature.molang.Node;
  * geometries and render controllers: the pack's over the vanilla Bedrock files it relies on. An entity is
  * <em>modelled</em>, drawn with its Bedrock geometry in place of Java's model, when the pack gives it a geometry or
  * render controller of its own and every render controller it names exists; others keep Java's model and run only
- * their scripts.
+ * their scripts. The pack's attachables ({@code minecraft:attachable}, the models of held items) are client entities
+ * of the same form, by the Java item they draw.
  */
-public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<String, Controller> controllers, Map<String, Animation> animations,
-	Map<String, RenderController> renderControllers) {
+public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<Item, ClientEntity> attachables, Map<String, Controller> controllers,
+	Map<String, Animation> animations, Map<String, RenderController> renderControllers, Map<String, Geometry> geometries) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/entities");
-	public static final EntityDefinitions EMPTY = new EntityDefinitions(Map.of(), Map.of(), Map.of(), Map.of());
+	public static final EntityDefinitions EMPTY = new EntityDefinitions(Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of());
+	/**
+	 * An attachable's size: its own, adult or baby, since it is drawn in its holder's hand, which already has the
+	 * holder's size.
+	 */
+	private static final BehaviourScale ATTACHED = new BehaviourScale(1f, 1f, Map.of());
 
 	/**
 	 * Entities whose Java look the port keeps even though the pack remodels them: Java draws the player's skin, cape,
@@ -40,11 +47,17 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 	 * the Bedrock render controllers for them use multi-texture and colour-mask materials the port does not draw.
 	 */
 	private static final java.util.Set<String> JAVA_MODEL = java.util.Set.of("minecraft:player", "minecraft:villager_v2");
+	/**
+	 * Entities kept on Java's model whose Bedrock animations still pose it: Java's humanoid model takes, for each of its
+	 * parts, the pose of the Bedrock geometry's bone of the same name. The pack replaces the whole player animation set
+	 * (its held items' poses rely on its arm poses), and Java's player model is Bedrock's player geometry.
+	 */
+	private static final java.util.Set<String> POSED_JAVA_MODEL = java.util.Set.of("minecraft:player");
 
 	/** One kind of source: the vanilla Bedrock files the pack relies on, or the pack's own. */
-	public record Files(List<JsonObject> entities, List<JsonObject> controllers, List<JsonObject> animations, List<JsonObject> models,
-		List<JsonObject> renderControllers) {
-		public static final Files NONE = new Files(List.of(), List.of(), List.of(), List.of(), List.of());
+	public record Files(List<JsonObject> entities, List<JsonObject> attachables, List<JsonObject> controllers, List<JsonObject> animations,
+		List<JsonObject> models, List<JsonObject> renderControllers) {
+		public static final Files NONE = new Files(List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
 	}
 
 	/** Bedrock entity identifiers whose Java entity type has another name. */
@@ -64,11 +77,14 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 
 	/**
 	 * A client entity. {@code locators} are in Java model axes and blocks, for an entity facing +Z before its yaw;
-	 * {@code renderControllers} pairs each controller's identifier with its condition (null: always).
+	 * {@code renderControllers} pairs each controller's identifier with its condition (null: always);
+	 * {@code publicVariables} are the variables ({@code scripts.variables} marked {@code public}) other scripts read on it
+	 * with {@code ->}, as an attachable reads its holder's ({@code c.owning_entity->v.attack_time}).
 	 */
 	public record ClientEntity(String id, Node initialize, Node preAnimation, List<Entry> animate, Node scale, Map<String, String> animations,
 		Map<String, String> particleEffects, Map<String, String> soundEffects, Map<String, Vector3f> locators, Map<String, Geometry> geometries,
-		Map<String, Identifier> textures, Map<String, EntityMaterial> materials, List<Entry> renderControllers, boolean modelled, BehaviourScale behaviourScale) {
+		Map<String, Identifier> textures, Map<String, EntityMaterial> materials, List<Entry> renderControllers, boolean modelled, boolean posesJavaModel,
+		java.util.Set<String> publicVariables, BehaviourScale behaviourScale) {
 	}
 
 	public record Transition(String target, Node condition) {
@@ -95,6 +111,11 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 		return entities.values().stream().filter(ClientEntity::modelled).map(ClientEntity::id).sorted().toList();
 	}
 
+	/** The identifiers of the modelled attachables, sorted. */
+	public List<String> modelledAttachables() {
+		return attachables.values().stream().filter(ClientEntity::modelled).map(ClientEntity::id).sorted().toList();
+	}
+
 	/** Loads the vanilla files, then the pack's over them (same identifiers replace); {@code materials} by name. */
 	/** {@code scales}: the behaviour pack's scale of each entity (see {@link BehaviourScale}), by Bedrock identifier. */
 	public static EntityDefinitions load(Files vanilla, Files pack, Map<String, EntityMaterial> materials, JsonObject scales) {
@@ -115,8 +136,8 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 		Sources sources = new Sources(geometries, packGeometries.keySet(), renderControllers, packRenderControllers.keySet(), materials, scales);
 		Map<EntityType<?>, ClientEntity> entities = new HashMap<>();
 		for (JsonObject f : concat(vanilla.entities(), pack.entities())) {
-			JsonObject desc = f.has("minecraft:client_entity") ? f.getAsJsonObject("minecraft:client_entity").getAsJsonObject("description") : null;
-			if (desc == null || !desc.has("identifier")) {
+			JsonObject desc = description(f, "minecraft:client_entity");
+			if (desc == null) {
 				continue;
 			}
 			String id = desc.get("identifier").getAsString();
@@ -126,9 +147,33 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 				LOGGER.info("Client entity {} has no Java entity; skipped", id);
 				continue;
 			}
-			guarded(id, () -> entities.put(type, entity(id, desc, sources)));
+			BehaviourScale scale = sources.scales().has(id) ? BehaviourScale.parse(sources.scales().getAsJsonObject(id)) : BehaviourScale.NONE;
+			guarded(id, () -> entities.put(type, entity(id, desc, sources, scale)));
 		}
-		return new EntityDefinitions(Map.copyOf(entities), Map.copyOf(controllers), Map.copyOf(animations), Map.copyOf(renderControllers));
+		// attachables are named by the item they draw, whose Bedrock and Java identifiers agree
+		Map<Item, ClientEntity> attachables = new HashMap<>();
+		for (JsonObject f : concat(vanilla.attachables(), pack.attachables())) {
+			JsonObject desc = description(f, "minecraft:attachable");
+			if (desc == null) {
+				continue;
+			}
+			String id = desc.get("identifier").getAsString();
+			Identifier javaId = Identifier.tryParse(id);
+			Item item = javaId == null ? null : BuiltInRegistries.ITEM.getOptional(javaId).orElse(null);
+			if (item == null) {
+				LOGGER.info("Attachable {} has no Java item; skipped", id);
+				continue;
+			}
+			guarded(id, () -> attachables.put(item, entity(id, desc, sources, ATTACHED)));
+		}
+		return new EntityDefinitions(Map.copyOf(entities), Map.copyOf(attachables), Map.copyOf(controllers), Map.copyOf(animations),
+			Map.copyOf(renderControllers), Map.copyOf(geometries));
+	}
+
+	/** A definition file's {@code description}, under its root key, when it names an identifier. */
+	private static @Nullable JsonObject description(JsonObject file, String root) {
+		JsonObject desc = file.has(root) && file.get(root).isJsonObject() ? obj(file.getAsJsonObject(root), "description") : null;
+		return desc != null && desc.has("identifier") ? desc : null;
 	}
 
 	private record Sources(Map<String, Geometry> geometries, java.util.Set<String> packGeometries, Map<String, RenderController> renderControllers,
@@ -163,7 +208,7 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 
 	// client entities
 
-	private static ClientEntity entity(String id, JsonObject desc, Sources sources) {
+	private static ClientEntity entity(String id, JsonObject desc, Sources sources, BehaviourScale behaviourScale) {
 		JsonObject scripts = obj(desc, "scripts");
 		Map<String, Geometry> geometries = new HashMap<>();
 		boolean packLook = false;
@@ -211,7 +256,19 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<S
 		return new ClientEntity(id, Expr.script(scripts.get("initialize")), Expr.script(scripts.get("pre_animation")), entries(scripts.get("animate")),
 			scripts.has("scale") ? Expr.scalar(scripts.get("scale"), 1) : null, strings(obj(desc, "animations")), strings(obj(desc, "particle_effects")),
 			strings(obj(desc, "sound_effects")), Map.copyOf(locators), Map.copyOf(geometries), Map.copyOf(textures), Map.copyOf(materials),
-			renderControllers, modelled, sources.scales().has(id) ? BehaviourScale.parse(sources.scales().getAsJsonObject(id)) : BehaviourScale.NONE);
+			renderControllers, modelled, POSED_JAVA_MODEL.contains(id) && geometries.containsKey("default"), publicVariables(obj(scripts, "variables")),
+			behaviourScale);
+	}
+
+	/** The names of the variables {@code scripts.variables} marks {@code public}, without their namespace. */
+	private static java.util.Set<String> publicVariables(JsonObject variables) {
+		java.util.Set<String> out = new java.util.HashSet<>();
+		strings(variables).forEach((name, access) -> {
+			if (access.equals("public")) {
+				out.add(name.toLowerCase(Locale.ROOT).replaceFirst("^(variable|v)\\.", ""));
+			}
+		});
+		return java.util.Set.copyOf(out);
 	}
 
 	// controllers

@@ -8,6 +8,7 @@ base {
 
 loom {
 	splitEnvironmentSourceSets()
+	accessWidenerPath = file('src/client/resources/lanature.classtweaker')
 
 	mods {
 		"lanature" {
@@ -118,9 +119,12 @@ def convertPack = tasks.register('convertPack', JavaExec) {
 	inputs.file(minecraftClientJar)
 	inputs.dir(minecraftReportsDir)
 	inputs.file(assetIndex)
+	// the runtime's built-in Bedrock engine tables, which the converter reads too
+	inputs.dir('src/client/resources/assets/lanature/bedrock/engine')
 	outputs.dir(generatedAssets)
 	def out = generatedAssets.get().asFile
 	def refs = file('refs')
+	def engine = file('src/client/resources/assets/lanature/bedrock/engine')
 	def report = minecraftReportsDir.get().file('reports/blocks.json').asFile
 	argumentProviders.add({ [
 		'--pack', bedrockPack.get(),
@@ -128,6 +132,7 @@ def convertPack = tasks.register('convertPack', JavaExec) {
 		'--minecraft-jar', minecraftClientJar.get().absolutePath,
 		'--block-report', report.absolutePath,
 		'--asset-index', assetIndex.get().absolutePath,
+		'--engine', engine.absolutePath,
 		'--out', out.absolutePath,
 	] } as CommandLineArgumentProvider)
 }

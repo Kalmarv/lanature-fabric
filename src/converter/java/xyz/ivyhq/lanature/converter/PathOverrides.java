@@ -10,12 +10,21 @@ import java.util.Set;
 /**
  * Pack textures that replace a vanilla Bedrock texture at the same path, written over the Java texture that is the
  * same picture. Entity textures are left to the entity port, since the pack draws most of them on its own geometry,
- * and particle sheets to the particle runtime.
+ * particle sheets to the particle runtime, potion pictures to {@link PotionModels} (Java has no texture per potion),
+ * colour maps Java has no picture for to {@link Colormaps}, the end portal colours (constants of Java's shader) to
+ * {@link EndPortalColors}, and the weather sprites (Java has whole sheets) to {@link WeatherSheets}.
  */
 public final class PathOverrides {
 	private static final List<String> FOLDERS = List.of("textures/items/", "textures/blocks/", "textures/environment/",
 		"textures/colormap/", "textures/misc/", "textures/ui/");
 	/** Bedrock's moon sheet is 4×2 phases; Java has one file per phase, in the same order. */
+	/**
+	 * Pictures of states Bedrock draws and Java has none of: the food bar's flashes as the bar drops (plain and under
+	 * Hunger) and its blink. Java's food bar does not flash (it shakes when saturation runs out), so nothing in Java
+	 * shows them.
+	 */
+	private static final Set<String> BEDROCK_ONLY = Set.of("textures/ui/hunger_blink", "textures/ui/hunger_flash_full", "textures/ui/hunger_flash_half",
+		"textures/ui/hunger_effect_flash_full", "textures/ui/hunger_effect_flash_half");
 	private static final List<String> MOON_PHASES = List.of("full_moon", "waning_gibbous", "third_quarter", "waning_crescent",
 		"new_moon", "waxing_crescent", "first_quarter", "waxing_gibbous");
 
@@ -42,6 +51,10 @@ public final class PathOverrides {
 					continue;
 				}
 				String ref = path.substring(0, path.length() - ext.length());
+				if (PotionModels.PREFIX.stream().anyMatch(ref::startsWith) || Colormaps.handles(identity, ref) || ref.equals(EndPortalColors.REF)
+					|| ref.equals(WeatherSheets.REF)) {
+					continue;
+				}
 				BedrockPack.Resolved winner = pack.texture(ref);
 				if (winner == null || !winner.path().equals(path) || !(pack.vanilla.has(ref + ".png") || pack.vanilla.has(ref + ".tga"))) {
 					continue; // a new texture, not a replacement (or shadowed by the other extension)
@@ -52,6 +65,10 @@ public final class PathOverrides {
 					continue;
 				}
 				Set<String> javas = identity.javaFor(ref);
+				if (BEDROCK_ONLY.contains(ref)) {
+					report.info("overrides", ref + " is a state Java does not draw; unused");
+					continue;
+				}
 				if (javas.isEmpty()) {
 					report.warn("overrides", "no Java texture is the same picture as " + ref);
 					continue;

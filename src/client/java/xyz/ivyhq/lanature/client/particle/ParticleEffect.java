@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.function.Function;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.block.state.BlockState;
 import xyz.ivyhq.lanature.molang.Molang;
@@ -42,9 +43,41 @@ final class ParticleEffect {
 	record CollisionEvent(String event, double minSpeed) {
 	}
 
+	/**
+	 * Where an effect's texture lives. Bedrock's {@code atlas.terrain} and {@code atlas.items} are its block and item
+	 * atlases, which an effect reads at UVs the engine hands it (a block's or item's own picture); the same pictures
+	 * are in Java's block and item atlases, so those effects draw from them, the UVs being Java's.
+	 */
+	enum Atlas {
+		PARTICLES(TextureAtlas.LOCATION_PARTICLES),
+		BLOCKS(TextureAtlas.LOCATION_BLOCKS),
+		ITEMS(TextureAtlas.LOCATION_ITEMS);
+
+		final Identifier location;
+
+		Atlas(Identifier location) {
+			this.location = location;
+		}
+
+		static Atlas of(String texture) {
+			return switch (texture) {
+				case "atlas.terrain" -> BLOCKS;
+				case "atlas.items" -> ITEMS;
+				default -> PARTICLES;
+			};
+		}
+	}
+
 	final String id;
 	final Material material;
+	final Atlas atlas;
+	/** The effect's sprite in the particle atlas; null for an effect on another atlas, or without a texture. */
 	final Identifier texture;
+	/**
+	 * Whether the effect draws its texture on its own rather than from the particle atlas: its material filters it
+	 * linearly ({@link SampledTexture}). Effects on the block and item atlases keep the atlas's sampler.
+	 */
+	final boolean standalone;
 	final List<Curve> curves = new ArrayList<>();
 	final Map<String, Event> events = new HashMap<>();
 
@@ -122,10 +155,17 @@ final class ParticleEffect {
 	Node[][] gradientColors;
 	boolean lighting;
 
-	ParticleEffect(String id, Material material, Identifier texture) {
+	ParticleEffect(String id, Material material, Atlas atlas, Identifier texture) {
 		this.id = id;
 		this.material = material;
+		this.atlas = atlas;
 		this.texture = texture;
+		this.standalone = texture != null && material.linear();
+	}
+
+	/** The texture the effect's particles draw from: its own (on the render thread, registered on first use) or its atlas. */
+	Identifier drawTexture() {
+		return standalone ? SampledTexture.of(texture, material) : atlas.location;
 	}
 
 	/**
@@ -146,8 +186,9 @@ final class ParticleEffect {
 		JsonObject desc = pe.getAsJsonObject("description");
 		JsonObject params = desc.has("basic_render_parameters") ? desc.getAsJsonObject("basic_render_parameters") : new JsonObject();
 		Material material = Material.lookup(materials, params.has("material") ? params.get("material").getAsString() : "particles_alpha");
-		Identifier texture = params.has("texture") ? Identifier.tryParse(params.get("texture").getAsString()) : null;
-		ParticleEffect fx = new ParticleEffect(desc.get("identifier").getAsString(), material, texture);
+		Atlas atlas = params.has("texture") ? Atlas.of(params.get("texture").getAsString()) : Atlas.PARTICLES;
+		Identifier texture = params.has("texture") && atlas == Atlas.PARTICLES ? Identifier.tryParse(params.get("texture").getAsString()) : null;
+		ParticleEffect fx = new ParticleEffect(desc.get("identifier").getAsString(), material, atlas, texture);
 		if (pe.has("curves")) {
 			pe.getAsJsonObject("curves").entrySet().forEach(e -> {
 				if (e.getValue().isJsonObject()) {

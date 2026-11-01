@@ -14,7 +14,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.client.particle.SingleQuadParticle;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.oit.OitPipelineSet;
-import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,25 +21,38 @@ import xyz.ivyhq.lanature.client.bedrock.MaterialFile;
 
 /**
  * A Bedrock particle material reduced to the render state Java can reproduce: blending (null for an opaque quad),
- * depth write and test, culling, the {@code ALPHA_TEST} cut-out and the {@code ENABLE_FOG} fog. Materials come from
- * Bedrock's {@code .material} format ({@link #table}); each distinct state gets one particle layer on the particle atlas,
- * whose pipelines the game compiles on first use.
+ * depth write and test, culling, the {@code ALPHA_TEST} cut-out and the {@code ENABLE_FOG} fog, and its texture's
+ * sampler (linear filtering, clamped). Materials come from Bedrock's {@code .material} format ({@link #table}); each
+ * distinct state gets one particle layer on each texture an effect draws from, whose pipelines the game compiles on
+ * first use (the sampler goes with the texture, not the pipeline).
  */
-public record Material(BlendFunction blend, boolean additive, boolean depthWrite, CompareOp depthTest, boolean cull, boolean alphaTest, boolean fog) {
+public record Material(BlendFunction blend, boolean additive, boolean depthWrite, CompareOp depthTest, boolean cull, boolean alphaTest, boolean fog,
+	boolean linear, boolean clamp) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/particles");
 	private static final Identifier SHADER = Identifier.fromNamespaceAndPath("lanature", "core/bedrock_particle");
-	/** Bedrock's {@code ALPHA_TEST} discards below half alpha; without it, only near-transparent texels go. */
-	private static final float ALPHA_TEST_CUTOFF = 0.5F;
-	private static final Map<Material, SingleQuadParticle.Layer> LAYERS = new ConcurrentHashMap<>();
+	/** Pipelines by {@link #key()}: materials differing only in their sampler share them. */
+	private static final Map<String, Pipelines> PIPELINES = new ConcurrentHashMap<>();
+	private static final Map<LayerKey, SingleQuadParticle.Layer> LAYERS = new ConcurrentHashMap<>();
 
-	/** The render layer for this state: one instance per state, as the particle renderer groups layers by identity. */
-	SingleQuadParticle.Layer layer() {
-		return LAYERS.computeIfAbsent(this, Material::createLayer);
+	/** A state's pipeline, and its order-independent transparency set when it blends. */
+	private record Pipelines(RenderPipeline pipeline, OitPipelineSet oit) {
 	}
 
-	// Layer takes the atlas's texture location, which only this (deprecated, replacement-less) constant names
-	@SuppressWarnings("deprecation")
-	private SingleQuadParticle.Layer createLayer() {
+	private record LayerKey(Material material, Identifier atlas) {
+	}
+
+	/**
+	 * The render layer for this state on a texture (an atlas, or a texture of its own): one instance per pair, as the
+	 * particle renderer groups layers by identity. The textures share the state's pipelines.
+	 */
+	SingleQuadParticle.Layer layer(Identifier atlas) {
+		return LAYERS.computeIfAbsent(new LayerKey(this, atlas), k -> {
+			Pipelines p = PIPELINES.computeIfAbsent(key(), x -> createPipelines());
+			return new SingleQuadParticle.Layer(p.oit != null, atlas, p.pipeline, p.oit);
+		});
+	}
+
+	private Pipelines createPipelines() {
 		String key = key();
 		RenderPipeline.Builder pipeline = RenderPipeline.builder(RenderPipelines.PARTICLE_SNIPPET)
 			.withLocation(Identifier.fromNamespaceAndPath("lanature", "pipeline/bedrock_particle_" + key))
@@ -48,7 +60,7 @@ public record Material(BlendFunction blend, boolean additive, boolean depthWrite
 		shader(pipeline);
 		if (blend == null) {
 			pipeline.withColorTargetState(ColorTargetState.DEFAULT);
-			return new SingleQuadParticle.Layer(false, TextureAtlas.LOCATION_PARTICLES, pipeline.build());
+			return new Pipelines(pipeline.build(), null);
 		}
 		pipeline.withColorTargetState(new ColorTargetState(blend));
 		// order-independent transparency accumulates either blended or additive colour; other blend factors fall back to the nearer
@@ -61,13 +73,13 @@ public record Material(BlendFunction blend, boolean additive, boolean depthWrite
 		if (depthTest == CompareOp.ALWAYS_PASS) {
 			oitSet.withoutDepthTest();
 		}
-		return new SingleQuadParticle.Layer(true, TextureAtlas.LOCATION_PARTICLES, pipeline.build(), oitSet.build());
+		return new Pipelines(pipeline.build(), oitSet.build());
 	}
 
 	private void shader(RenderPipeline.Builder b) {
 		b.withFragmentShader(SHADER).withCull(cull);
 		if (alphaTest) {
-			b.withShaderDefine("ALPHA_CUTOFF", ALPHA_TEST_CUTOFF);
+			b.withShaderDefine("ALPHA_TEST");
 		}
 		if (!fog) {
 			b.withShaderDefine("NO_FOG");
@@ -79,7 +91,7 @@ public record Material(BlendFunction blend, boolean additive, boolean depthWrite
 		return key();
 	}
 
-	/** A resource-path-safe name for this state, e.g. {@code src_alpha-one_nw_ge_nc_f}. */
+	/** A resource-path-safe name for this state's pipeline, e.g. {@code src_alpha-one_nw_ge_nc_f} (the sampler left out). */
 	private String key() {
 		StringBuilder k = new StringBuilder();
 		k.append(blend == null ? "opaque" : (blend.color().sourceFactor() + "-" + blend.color().destFactor()));
@@ -110,7 +122,7 @@ public record Material(BlendFunction blend, boolean additive, boolean depthWrite
 			additive = dst == BlendFactor.ONE;
 		}
 		return new Material(blend, additive, !s.state("DisableDepthWrite"), s.depthTest(), !s.state("DisableCulling"), s.define("ALPHA_TEST"),
-			s.define("ENABLE_FOG"));
+			s.define("ENABLE_FOG"), s.sampler(0).linear(), s.sampler(0).clamp());
 	}
 
 	/** The fallback for an effect naming a material no file defines. */
@@ -118,7 +130,8 @@ public record Material(BlendFunction blend, boolean additive, boolean depthWrite
 		Material m = table.get(name);
 		if (m == null) {
 			LOGGER.warn("Unknown particle material {}; drawing it as particles_blend", name);
-			m = table.getOrDefault("particles_blend", new Material(BlendFunction.TRANSLUCENT, false, true, CompareOp.GREATER_THAN_OR_EQUAL, false, false, true));
+			m = table.getOrDefault("particles_blend",
+				new Material(BlendFunction.TRANSLUCENT, false, true, CompareOp.GREATER_THAN_OR_EQUAL, false, false, true, false, false));
 		}
 		return m;
 	}

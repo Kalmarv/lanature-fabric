@@ -9,6 +9,11 @@ import net.minecraft.world.entity.Entity;
 public interface EntityHost {
 	Entity entity();
 
+	/** Whether the host is an attachable, a held item's model, whose {@link #entity} is its holder. */
+	default boolean attached() {
+		return false;
+	}
+
 	default float partialTick() {
 		return 1;
 	}

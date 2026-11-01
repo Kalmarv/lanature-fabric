@@ -1,14 +1,31 @@
 package xyz.ivyhq.lanature.client.molang;
 
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.FluidTags;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.Pose;
-import net.minecraft.world.entity.monster.warden.Warden;
+import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.animal.allay.Allay;
 import net.minecraft.world.entity.animal.chicken.Chicken;
 import net.minecraft.world.entity.animal.feline.Cat;
@@ -16,25 +33,35 @@ import net.minecraft.world.entity.animal.fish.Pufferfish;
 import net.minecraft.world.entity.animal.fox.Fox;
 import net.minecraft.world.entity.animal.golem.CopperGolem;
 import net.minecraft.world.entity.animal.parrot.Parrot;
-import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
+import net.minecraft.world.entity.monster.warden.Warden;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.player.PlayerModelPart;
 import net.minecraft.world.entity.projectile.FishingHook;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.projectile.throwableitemprojectile.AbstractThrownPotion;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.tags.FluidTags;
-import net.minecraft.util.Mth;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
-import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.item.CrossbowItem;
+import net.minecraft.world.item.ItemCooldowns;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.component.KineticWeapon;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import xyz.ivyhq.lanature.client.bedrock.BedrockResources;
+import xyz.ivyhq.lanature.client.mixin.LivingEntityAccessor;
+import xyz.ivyhq.lanature.client.particle.PictureEffects;
 import xyz.ivyhq.lanature.molang.Functions;
+import xyz.ivyhq.lanature.molang.Node;
+import xyz.ivyhq.lanature.molang.Scope;
 
 /** Entity queries, on the host's entity; 0 when the host has none. */
 public final class EntityQueries {
+	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/molang");
+	private static final Map<String, Predicate<BlockState>> BLOCK_TAGS = Map.of("water", state -> state.is(Blocks.WATER));
+	private static final Set<String> UNKNOWN_BLOCK_TAGS = ConcurrentHashMap.newKeySet();
+
 	private EntityQueries() {
 	}
 
@@ -77,7 +104,7 @@ public final class EntityQueries {
 	static void register() {
 		flag("is_alive", Entity::isAlive);
 		flag("is_on_ground", Entity::onGround);
-		flag("is_in_water", Entity::isInWater);
+		flag("is_in_water", e -> e.isInWater() && !floatingHook(e));
 		flag("is_in_water_or_rain", Entity::isInWaterOrRain);
 		flag("is_in_contact_with_water", e -> e.isInWaterOrRain() || e.isInWater());
 		flag("is_sneaking", Entity::isShiftKeyDown);
@@ -93,8 +120,8 @@ public final class EntityQueries {
 		value("health", e -> e instanceof LivingEntity le ? le.getHealth() : 0);
 		value("max_health", e -> e instanceof LivingEntity le ? le.getMaxHealth() : 0);
 		smooth("body_y_rotation", EntityQueries::bodyYaw);
-		value("ground_speed", e -> Math.sqrt(sq(e.getX() - e.xo) + sq(e.getZ() - e.zo)) * 20);
-		value("vertical_speed", e -> (e.getY() - e.yo) * 20);
+		value("ground_speed", e -> floatingHook(e) ? 0 : Math.sqrt(sq(e.getX() - e.xo) + sq(e.getZ() - e.zo)) * 20);
+		value("vertical_speed", e -> floatingHook(e) ? 0 : (e.getY() - e.yo) * 20);
 		smooth("life_time", (e, pt) -> (e.tickCount + pt - 1) / 20.0);
 		value("model_scale", e -> 1);
 		smooth("modified_distance_moved", (e, pt) -> e instanceof LivingEntity le && walks(le) ? le.walkAnimation.position(pt) : 0);
@@ -110,6 +137,15 @@ public final class EntityQueries {
 		value("main_hand_item_use_duration",
 			e -> e instanceof LivingEntity le && le.isUsingItem() && le.getUsedItemHand() == InteractionHand.MAIN_HAND ? le.getTicksUsingItem() / 20.0 : 0);
 		value("main_hand_item_max_duration", e -> e instanceof LivingEntity le ? le.getMainHandItem().getUseDuration(le) / 20.0 : 0);
+		// whole ticks since the entity last hit with a kinetic weapon (a spear's charge), -1 if it never has: the pack's
+		// spear plays its hit animation while this is from 0 to 5, so never must read below 0
+		value("ticks_since_last_kinetic_weapon_hit", e -> {
+			long last = e instanceof LivingEntityAccessor le ? le.lanature$lastKineticHitFeedbackTime() : -1;
+			return last < 0 ? -1 : e.level().getGameTime() - last;
+		});
+		// the facing of a sleeper's bed as a yaw (inferred: Java's own direction angles; vanilla's sleep animation turns
+		// its root by it, which Java's renderer stands in for)
+		value("sleep_rotation", e -> e instanceof LivingEntity le && le.getBedOrientation() != null ? le.getBedOrientation().toYRot() : 0);
 		flag("head_is_in_water", e -> e.isEyeInFluid(FluidTags.WATER));
 		flag("has_head_gear", e -> e instanceof LivingEntity le && !le.getItemBySlot(EquipmentSlot.HEAD).isEmpty());
 		flag("is_levitating", e -> e instanceof LivingEntity le && le.hasEffect(MobEffects.LEVITATION));
@@ -148,16 +184,70 @@ public final class EntityQueries {
 			ItemStack stack = e == null ? ItemStack.EMPTY : ClientQueries.slot(e, slot);
 			return stack.isEmpty() ? "" : ClientQueries.itemId(stack).replaceFirst("^minecraft:", "");
 		});
-		// is_item_name_any(slot, [index,] names...)
+		// item_remaining_use_duration([hand, [normalization]]): the time left of the item in use in that hand (the main
+		// hand by default), in seconds; with a normalization, as that times the fraction of its full duration left
+		// (inferred from vanilla's first-person crossbow, which scales the bow by it from 1 to 0)
+		Functions.registerNumericQuery("item_remaining_use_duration", (s, a) -> {
+			if (!(ClientQueries.entity(s.host) instanceof LivingEntity le) || !le.isUsingItem()) {
+				return 0;
+			}
+			String slot = a.length == 0 ? "main_hand" : ClientQueries.str(s, a, 0);
+			if (le.getUsedItemHand() != (slot.equals("off_hand") ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND)) {
+				return 0;
+			}
+			int remaining = le.getUseItemRemainingTicks();
+			if (a.length < 2) {
+				return remaining / 20.0;
+			}
+			int full = le.getUseItem().getUseDuration(le);
+			return full <= 0 ? 0 : remaining / (double) full * ClientQueries.num(s, a, 1);
+		});
+		// is_item_name_any(slot, [index,] names...): an empty slot's name is '', as the pack tests for an empty hand
 		Functions.registerNumericQuery("is_item_name_any", (s, a) -> {
 			Entity e = ClientQueries.entity(s.host);
 			if (e == null || a.length < 2) {
 				return 0;
 			}
-			String id = ClientQueries.itemId(ClientQueries.slot(e, ClientQueries.str(s, a, 0)));
+			ItemStack stack = ClientQueries.slot(e, ClientQueries.str(s, a, 0));
+			String id = stack.isEmpty() ? "" : ClientQueries.itemId(stack);
 			int first = a[1].value(s) instanceof String ? 1 : 2;
 			for (int i = first; i < a.length; i++) {
 				if (ClientQueries.str(s, a, i).equals(id)) {
+					return 1;
+				}
+			}
+			return 0;
+		});
+		// equipped_item_all_tags / equipped_item_any_tag(slot, [index,] tags...): the Bedrock item tags of the item there
+		Functions.registerNumericQuery("equipped_item_all_tags", (s, a) -> itemTags(s, a, true));
+		Functions.registerNumericQuery("equipped_item_any_tag", (s, a) -> itemTags(s, a, false));
+		// the main hand's kinetic weapon: Bedrock's spears and Java's time their charge alike, by a delay and each
+		// condition's longest duration, in ticks (Geyser's Bedrock spear components and Java's spears give equal values)
+		kinetic("kinetic_weapon_delay", KineticWeapon::delayTicks);
+		kinetic("kinetic_weapon_dismount_duration", w -> kineticDuration(w.dismountConditions()));
+		kinetic("kinetic_weapon_knockback_duration", w -> kineticDuration(w.knockbackConditions()));
+		kinetic("kinetic_weapon_damage_duration", w -> kineticDuration(w.damageConditions()));
+		smooth("cooldown_time_remaining", EntityQueries::cooldownRemaining);
+		// whether the held crossbow is loaded (Bedrock's crossbow goes only in the main hand)
+		flag("item_is_charged", e -> e instanceof LivingEntity le && CrossbowItem.isCharged(le.getMainHandItem()));
+		// a player's skin has a cape and its settings show it
+		flag("has_cape", e -> e instanceof AbstractClientPlayer p && p.getSkin().cape() != null && p.isModelPartShown(PlayerModelPart.CAPE));
+		// the block the entity stands on: its picture in the block atlas and its colour (the warden digs it up)
+		surface("surface_particle_texture_coordinate", "surface_particle_texture_coordinate");
+		surface("surface_particle_texture_size", "surface_particle_texture_size");
+		surface("surface_particle_color", "surface_particle_tint");
+		// an end crystal's base: Java's crystals placed by players have none, the exit pillars' do
+		flag("show_bottom", e -> e instanceof EndCrystal c && c.showsBottom());
+		// relative_block_has_any_tag(x, y, z, tags...): the Bedrock block tags of the block at an offset from the entity
+		Functions.registerNumericQuery("relative_block_has_any_tag", (s, a) -> {
+			Entity e = ClientQueries.entity(s.host);
+			if (e == null || a.length < 4) {
+				return 0;
+			}
+			BlockState state = e.level().getBlockState(BlockPos.containing(e.getX() + ClientQueries.num(s, a, 0),
+				e.getY() + ClientQueries.num(s, a, 1), e.getZ() + ClientQueries.num(s, a, 2)));
+			for (int i = 3; i < a.length; i++) {
+				if (blockHasTag(state, ClientQueries.str(s, a, i))) {
 					return 1;
 				}
 			}
@@ -219,7 +309,27 @@ public final class EntityQueries {
 		flag("is_stunned", e -> e instanceof Fox f && f.isFaceplanted());
 		// the client knows no AI target: a mob's aggression flag, a fishing hook's hooked entity
 		flag("has_target", e -> e instanceof Mob m && m.isAggressive() || e instanceof FishingHook h && h.getHookedIn() != null);
-		flag("is_attached", Entity::isPassenger);
+		// an attachable is attached to its holder; another entity, to what it rides
+		Functions.registerNumericQuery("is_attached", (s, a) -> {
+			Entity e = ClientQueries.entity(s.host);
+			return s.host instanceof EntityHost h && h.attached() || e != null && e.isPassenger() ? 1 : 0;
+		});
+		// an attachable's owner is its holder; a tamed animal's or a projectile's, the entity that owns it
+		Functions.registerNumericQuery("is_owner_identifier_any", (s, a) -> {
+			Entity e = ClientQueries.entity(s.host);
+			Entity owner = s.host instanceof EntityHost h && h.attached() ? e : e instanceof OwnableEntity o ? o.getOwner()
+				: e instanceof Projectile p ? p.getOwner() : null;
+			if (owner == null) {
+				return 0;
+			}
+			String id = BuiltInRegistries.ENTITY_TYPE.getKey(owner.getType()).toString();
+			for (int i = 0; i < a.length; i++) {
+				if (ClientQueries.str(s, a, i).equals(id)) {
+					return 1;
+				}
+			}
+			return 0;
+		});
 		smooth("body_x_rotation", Entity::getXRot);
 		Functions.registerNumericQuery("is_name_any", (s, a) -> {
 			Entity e = ClientQueries.entity(s.host);
@@ -234,6 +344,91 @@ public final class EntityQueries {
 			}
 			return 0;
 		});
+	}
+
+	private static void surface(String name, String variable) {
+		Functions.registerQuery(name, (s, a) -> {
+			Entity e = ClientQueries.entity(s.host);
+			return e == null ? (Object) 0.0 : PictureEffects.surface(e).get(variable);
+		});
+	}
+
+	private static void kinetic(String name, ToDoubleFunction<KineticWeapon> f) {
+		value(name, e -> {
+			KineticWeapon weapon = e instanceof LivingEntity le ? le.getMainHandItem().get(DataComponents.KINETIC_WEAPON) : null;
+			return weapon == null ? 0 : f.applyAsDouble(weapon);
+		});
+	}
+
+	/** {@code q.kinetic_weapon_*_duration}: a condition's longest duration in ticks, 0 without one. */
+	public static double kineticDuration(Optional<KineticWeapon.Condition> condition) {
+		return condition.map(KineticWeapon.Condition::maxDurationTicks).orElse(0);
+	}
+
+	/**
+	 * {@code q.cooldown_time_remaining} with no category (the pack names none): the held item's cooldown left, in seconds.
+	 * Bedrock's spears have an attack cooldown, which is Java's attack recharge (each spear's lasts as long as its
+	 * Bedrock cooldown); any other item's is Java's item cooldown (inferred for the items Bedrock gives a use cooldown
+	 * by code rather than by component).
+	 */
+	private static double cooldownRemaining(Entity e, float pt) {
+		if (!(e instanceof Player player)) {
+			return 0;
+		}
+		ItemStack stack = player.getMainHandItem();
+		if ("attack".equals(BedrockResources.item(ClientQueries.itemId(stack)).cooldown())) {
+			return (1 - player.getAttackStrengthScale(pt)) * player.getCurrentItemAttackStrengthDelay() / 20;
+		}
+		ItemCooldowns cooldowns = player.getCooldowns();
+		ItemCooldowns.CooldownInstance cooldown = cooldowns.cooldowns.get(cooldowns.getCooldownGroup(stack));
+		return cooldown == null ? 0 : Math.max(0, cooldown.endTime() - (cooldowns.tickCount + pt)) / 20;
+	}
+
+	/**
+	 * A fishing hook resting on the water. Bedrock's floats still on the surface, out of the water (the pack's float
+	 * states need it not in water and, for the lantern hook, at no speed), where Java's bobs just under the surface,
+	 * touching the water. Java's hook bobbing, not bitten and with its eye above the water is taken as Bedrock's
+	 * floating one (inferred): its dive after the cast and a bite pulling it under still count as in the water.
+	 */
+	private static boolean floatingHook(Entity e) {
+		return e instanceof FishingHook h && h.currentState == FishingHook.FishHookState.BOBBING && !h.biting && !h.isUnderWater();
+	}
+
+	/** Whether the item in a slot has all (or any) of the Bedrock item tags named after the slot and optional index. */
+	private static double itemTags(Scope s, Node[] a, boolean all) {
+		Entity e = ClientQueries.entity(s.host);
+		if (e == null || a.length < 2) {
+			return 0;
+		}
+		ItemStack stack = ClientQueries.slot(e, ClientQueries.str(s, a, 0));
+		if (stack.isEmpty()) {
+			return 0;
+		}
+		Set<String> tags = BedrockResources.item(ClientQueries.itemId(stack)).tags();
+		int first = a[1].value(s) instanceof String ? 1 : 2;
+		for (int i = first; i < a.length; i++) {
+			if (tags.contains(ClientQueries.str(s, a, i)) != all) {
+				return all ? 0 : 1;
+			}
+		}
+		return all ? 1 : 0;
+	}
+
+	/**
+	 * Whether a block has a Bedrock block tag. No published data lists Bedrock's block tags, so each one the pack asks
+	 * for is matched here by the Java blocks that carry it: {@code water} is on Bedrock's water and flowing water
+	 * (sourced: Bedrock's documented vanilla block tags), Java's water block. A tag not listed is reported once and
+	 * matches nothing.
+	 */
+	private static boolean blockHasTag(BlockState state, String tag) {
+		Predicate<BlockState> test = BLOCK_TAGS.get(tag);
+		if (test == null) {
+			if (UNKNOWN_BLOCK_TAGS.add(tag)) {
+				LOGGER.warn("Bedrock block tag {} has no Java blocks: it matches none", tag);
+			}
+			return false;
+		}
+		return test.test(state);
 	}
 
 	/** Cats name their variant; parrots and foxes number it in Bedrock's order. */

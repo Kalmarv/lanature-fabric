@@ -429,7 +429,10 @@ public abstract class Node {
 		}
 	}
 
-	/** {@code entity_ref->expression}: evaluates the right side with queries acting on another host. */
+	/**
+	 * {@code entity_ref->expression}: evaluates the right side on another host, its queries acting on it and its
+	 * variables those the host makes public ({@link VariableHost}; none for a host without scripts).
+	 */
 	static final class Arrow extends Node {
 		final Node target;
 		final Node expression;
@@ -450,12 +453,16 @@ public abstract class Node {
 			if (t == null || t instanceof Number) {
 				return 0.0;
 			}
-			Object previous = s.host;
+			// the expression reads the target: its queries and its public variables
+			Object previousHost = s.host;
+			Variables previousVariables = s.variables;
 			s.host = t;
+			s.variables = t instanceof VariableHost v ? v.publicVariables() : Variables.NONE;
 			try {
 				return expression.value(s);
 			} finally {
-				s.host = previous;
+				s.host = previousHost;
+				s.variables = previousVariables;
 			}
 		}
 	}

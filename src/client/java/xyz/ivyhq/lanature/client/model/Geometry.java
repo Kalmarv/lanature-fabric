@@ -44,57 +44,60 @@ public record Geometry(String id, int textureWidth, int textureHeight, List<Bone
 		return i == null ? -1 : i;
 	}
 
-	/** Every geometry the files define, by identifier; legacy {@code geometry.a:geometry.b} keys inherit b's bones. */
+	/** One geometry definition: a modern {@code minecraft:geometry} entry, or a legacy {@code geometry.x[:parent]} key. */
+	private record Definition(JsonObject json, boolean legacy, String parent) {
+		int width(int fallback) {
+			return legacy ? i(json, "texturewidth", fallback) : i(json.getAsJsonObject("description"), "texture_width", fallback);
+		}
+
+		int height(int fallback) {
+			return legacy ? i(json, "textureheight", fallback) : i(json.getAsJsonObject("description"), "texture_height", fallback);
+		}
+	}
+
+	/**
+	 * Every geometry the files define, by identifier, in either format; a later definition of an identifier replaces
+	 * an earlier one, whatever their formats. A legacy {@code geometry.a:geometry.b} key inherits b's bones (b in
+	 * either format), its own replacing those of the same name.
+	 */
 	public static Map<String, Geometry> load(List<JsonObject> files) {
-		Map<String, JsonObject> modern = new LinkedHashMap<>();
-		Map<String, JsonObject> legacy = new LinkedHashMap<>();
-		Map<String, String> legacyParents = new HashMap<>();
+		Map<String, Definition> defs = new LinkedHashMap<>();
 		for (JsonObject f : files) {
 			if (f.has("minecraft:geometry") && f.get("minecraft:geometry").isJsonArray()) {
 				for (JsonElement g : f.getAsJsonArray("minecraft:geometry")) {
 					JsonObject o = g.getAsJsonObject();
-					modern.put(o.getAsJsonObject("description").get("identifier").getAsString(), o);
+					defs.put(o.getAsJsonObject("description").get("identifier").getAsString(), new Definition(o, false, null));
 				}
 			}
 			for (Map.Entry<String, JsonElement> e : f.entrySet()) {
 				if (e.getKey().startsWith("geometry.") && e.getValue().isJsonObject()) {
 					String[] parts = e.getKey().split(":", 2);
-					legacy.put(parts[0], e.getValue().getAsJsonObject());
-					if (parts.length == 2) {
-						legacyParents.put(parts[0], parts[1]);
-					} else {
-						legacyParents.remove(parts[0]);
-					}
+					defs.put(parts[0], new Definition(e.getValue().getAsJsonObject(), true, parts.length == 2 ? parts[1] : null));
 				}
 			}
 		}
 		Map<String, Geometry> out = new HashMap<>();
-		modern.forEach((id, o) -> guarded(id, () -> {
-			JsonObject d = o.getAsJsonObject("description");
-			out.put(id, build(id, i(d, "texture_width", 64), i(d, "texture_height", 64), bones(o)));
+		defs.keySet().forEach(id -> guarded(id, () -> {
+			// the inheritance chain, root first: a child's bones replace the parent's of the same name
+			List<Definition> chain = new ArrayList<>();
+			String at = id;
+			while (at != null && defs.containsKey(at) && chain.size() < 16) {
+				Definition d = defs.get(at);
+				chain.addFirst(d);
+				at = d.parent;
+			}
+			Map<String, JsonObject> bones = new LinkedHashMap<>();
+			int width = 64;
+			int height = 64;
+			for (Definition d : chain) {
+				width = d.width(width);
+				height = d.height(height);
+				for (JsonObject b : bones(d.json)) {
+					bones.put(b.get("name").getAsString().toLowerCase(Locale.ROOT), b);
+				}
+			}
+			out.put(id, build(id, width, height, new ArrayList<>(bones.values())));
 		}));
-		for (String id : legacy.keySet()) {
-			guarded(id, () -> {
-				// the inheritance chain, root first: a child's bones replace the parent's of the same name
-				List<JsonObject> chain = new ArrayList<>();
-				String at = id;
-				while (at != null && legacy.containsKey(at) && chain.size() < 16) {
-					chain.addFirst(legacy.get(at));
-					at = legacyParents.get(at);
-				}
-				Map<String, JsonObject> bones = new LinkedHashMap<>();
-				int width = 64;
-				int height = 64;
-				for (JsonObject g : chain) {
-					width = i(g, "texturewidth", width);
-					height = i(g, "textureheight", height);
-					for (JsonObject b : bones(g)) {
-						bones.put(b.get("name").getAsString().toLowerCase(Locale.ROOT), b);
-					}
-				}
-				out.put(id, build(id, width, height, new ArrayList<>(bones.values())));
-			});
-		}
 		return Map.copyOf(out);
 	}
 

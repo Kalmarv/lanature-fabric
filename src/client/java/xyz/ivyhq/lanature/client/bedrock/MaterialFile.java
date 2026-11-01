@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,7 +17,8 @@ import org.slf4j.LoggerFactory;
  * Bedrock's {@code .material} format, resolved: every material's defines, states, depth function and blend factors
  * after inheritance. A key {@code name:parent} inherits the parent's settings; {@code +defines}, {@code -defines},
  * {@code +states} and {@code -states} add to or remove from them; {@code depthFunc}, {@code blendSrc} and
- * {@code blendDst} replace them. Sampler states (filtering, wrapping) are not read.
+ * {@code blendDst} replace them. {@code samplerStates} replaces the samplers' filtering and wrapping, and
+ * {@code +samplerStates} sets them sampler by sampler ({@code samplerIndex}), keeping what it does not name.
  */
 public final class MaterialFile {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/materials");
@@ -24,8 +26,32 @@ public final class MaterialFile {
 	private MaterialFile() {
 	}
 
+	/** A sampler's {@code textureFilter} ({@code Point}, {@code Bilinear}...) and {@code textureWrap} ({@code Repeat}, {@code Clamp}); null where unset. */
+	public record Sampler(@Nullable String filter, @Nullable String wrap) {
+		static final Sampler DEFAULT = new Sampler(null, null);
+
+		/** Filtered linearly: {@code Bilinear}, or {@code Trilinear}, which also blends mip levels (textures here have one). */
+		public boolean linear() {
+			return "Bilinear".equals(filter) || "Trilinear".equals(filter);
+		}
+
+		public boolean clamp() {
+			return "Clamp".equals(wrap);
+		}
+
+		Sampler with(JsonObject state) {
+			return new Sampler(state.has("textureFilter") ? state.get("textureFilter").getAsString() : filter,
+				state.has("textureWrap") ? state.get("textureWrap").getAsString() : wrap);
+		}
+	}
+
 	/** One material's resolved settings. */
-	public record Settings(Set<String> defines, Set<String> states, String depthFunc, String blendSrc, String blendDst) {
+	public record Settings(Set<String> defines, Set<String> states, String depthFunc, String blendSrc, String blendDst, Map<Integer, Sampler> samplers) {
+		/** The sampler of a texture slot (0 is the main texture). */
+		public Sampler sampler(int index) {
+			return samplers.getOrDefault(index, Sampler.DEFAULT);
+		}
+
 		public boolean define(String name) {
 			return defines.contains(name);
 		}
@@ -99,9 +125,25 @@ public final class MaterialFile {
 			if (entry.has("blendDst")) {
 				s.blendDst = entry.get("blendDst").getAsString();
 			}
+			if (entry.has("samplerStates")) {
+				s.samplers.clear();
+			}
+			samplers(entry, "samplerStates", s.samplers);
+			samplers(entry, "+samplerStates", s.samplers);
 		}
 		resolved.put(name, s);
 		return s;
+	}
+
+	private static void samplers(JsonObject entry, String key, Map<Integer, Sampler> target) {
+		if (entry.has(key) && entry.get(key).isJsonArray()) {
+			for (JsonElement e : entry.getAsJsonArray(key)) {
+				if (e.isJsonObject() && e.getAsJsonObject().has("samplerIndex")) {
+					JsonObject state = e.getAsJsonObject();
+					target.merge(state.get("samplerIndex").getAsInt(), Sampler.DEFAULT.with(state), (old, x) -> old.with(state));
+				}
+			}
+		}
 	}
 
 	private static void edit(JsonObject entry, String key, Set<String> target, boolean add) {
@@ -122,11 +164,13 @@ public final class MaterialFile {
 		String depthFunc = "LessEqual";
 		String blendSrc = "SourceAlpha";
 		String blendDst = "OneMinusSrcAlpha";
+		final Map<Integer, Sampler> samplers = new HashMap<>();
 
 		Builder copy() {
 			Builder c = new Builder();
 			c.defines.addAll(defines);
 			c.states.addAll(states);
+			c.samplers.putAll(samplers);
 			c.depthFunc = depthFunc;
 			c.blendSrc = blendSrc;
 			c.blendDst = blendDst;
@@ -134,7 +178,7 @@ public final class MaterialFile {
 		}
 
 		Settings build() {
-			return new Settings(Set.copyOf(defines), Set.copyOf(states), depthFunc, blendSrc, blendDst);
+			return new Settings(Set.copyOf(defines), Set.copyOf(states), depthFunc, blendSrc, blendDst, Map.copyOf(samplers));
 		}
 	}
 

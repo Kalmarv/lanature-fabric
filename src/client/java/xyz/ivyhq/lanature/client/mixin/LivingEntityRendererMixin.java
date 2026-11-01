@@ -78,7 +78,7 @@ abstract class LivingEntityRendererMixin {
 		poseStack.pushPose();
 		poseStack.translate(0.0F, 1.501F, 0.0F);
 		poseStack.scale(-1.0F, -1.0F, 1.0F);
-		ModelRenderer.submit(bedrock, poseStack, collector, light, overlay, color);
+		ModelRenderer.submit(bedrock, poseStack, collector, light, overlay, color, outlineColor);
 		poseStack.popPose();
 	}
 

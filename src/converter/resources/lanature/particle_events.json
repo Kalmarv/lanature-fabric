@@ -1,5 +1,6 @@
 {
 	"_comment": "Bedrock level-event particles (Geyser's eventType) → the effect identifier the Bedrock engine spawns for them.",
+	"TERRAIN": "minecraft:block_destruct",
 	"SMOKE": "minecraft:basic_smoke_particle",
 	"WHITE_SMOKE": "minecraft:white_smoke_particle",
 	"PALE_OAK_LEAVES": "minecraft:pale_oak_leaves_particle",

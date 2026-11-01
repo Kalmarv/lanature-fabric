@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -18,7 +20,9 @@ import java.util.Set;
  * <p>Every pack sound event becomes {@code lanature:<bedrock name>}, which the runtime plays for Bedrock sound
  * references. Where the pack redefines a vanilla Bedrock event, the Java events Geyser maps to it are replaced too.
  * Pack {@code .ogg} files are copied; references to vanilla Bedrock files resolve to Java's own sound through
- * PackConverter's sound-path table.
+ * PackConverter's sound-path table, else at the same path. A vanilla file found neither way (Java keeps some sounds
+ * elsewhere, such as the loom's under {@code ui/}) is the file in the same place of the Java event Geyser plays as the
+ * definition, when that event lists as many different files.
  */
 public final class SoundConverter {
 	private final BedrockPack pack;
@@ -26,12 +30,16 @@ public final class SoundConverter {
 	private final Map<String, String> bedrockToJavaFile = new HashMap<>();
 	/** Java sound files without extension ({@code block/stone/break1}), from the asset index. */
 	private final Set<String> javaFiles;
+	/** Java's {@code sounds.json}: event → its sounds. */
+	private final JsonObject javaEvents;
 	private final Path assets;
 	private final Report report;
 
-	public SoundConverter(BedrockPack pack, JsonObject geyserSounds, JsonObject packConverterSounds, Set<String> javaFiles, Path assets, Report report) {
+	public SoundConverter(BedrockPack pack, JsonObject geyserSounds, JsonObject packConverterSounds, Set<String> javaFiles, JsonObject javaEvents,
+		Path assets, Report report) {
 		this.pack = pack;
 		this.javaFiles = javaFiles;
+		this.javaEvents = javaEvents;
 		this.geyserSounds = geyserSounds;
 		this.assets = assets;
 		this.report = report;
@@ -47,6 +55,13 @@ public final class SoundConverter {
 			}
 		}
 		return out;
+	}
+
+	/** Java's {@code sounds.json}, the asset index's {@code minecraft/sounds.json} in the objects folder beside the indexes. */
+	public static JsonObject javaEvents(Path assetIndex) throws IOException {
+		JsonObject index = Json.parse(Files.readAllBytes(assetIndex)).getAsJsonObject();
+		String hash = index.getAsJsonObject("objects").getAsJsonObject("minecraft/sounds.json").get("hash").getAsString();
+		return Json.parse(Files.readAllBytes(assetIndex.getParent().resolveSibling("objects").resolve(hash.substring(0, 2)).resolve(hash))).getAsJsonObject();
 	}
 
 	/** Java path → Bedrock path(s); a nested object is a folder of both. */
@@ -117,6 +132,7 @@ public final class SoundConverter {
 		} else if (declared != null) {
 			list.add(declared); // a single sound, as an object or a name
 		}
+		List<String> played = null;
 		for (JsonElement s : list) {
 			JsonObject so = s.isJsonObject() ? s.getAsJsonObject() : null;
 			String file = so == null ? s.getAsString() : so.has("name") ? so.get("name").getAsString() : null;
@@ -124,6 +140,14 @@ public final class SoundConverter {
 				continue;
 			}
 			String javaName = soundFile(file);
+			if (javaName == null) {
+				played = played == null ? javaPlayed(name) : played;
+				List<String> files = distinctFiles(list);
+				if (played.size() == files.size()) {
+					javaName = played.get(files.indexOf(file));
+					report.info("sounds", name + ": " + file + " is Java's " + javaName + ", as the Java event Geyser plays as it");
+				}
+			}
 			if (javaName == null) {
 				unresolved++;
 				report.warn("sounds", name + ": no file for " + file);
@@ -221,6 +245,44 @@ public final class SoundConverter {
 				}
 			}
 		}
+	}
+
+	/** A definition's files, in order and each once. */
+	private static List<String> distinctFiles(JsonArray list) {
+		Set<String> out = new LinkedHashSet<>();
+		for (JsonElement s : list) {
+			JsonObject so = s.isJsonObject() ? s.getAsJsonObject() : null;
+			String file = so == null ? s.getAsString() : so.has("name") ? so.get("name").getAsString() : null;
+			if (file != null) {
+				out.add(file);
+			}
+		}
+		return List.copyOf(out);
+	}
+
+	/**
+	 * The files, in order and each once, of the Java events Geyser plays as a Bedrock definition; empty unless they are
+	 * one list (one event, or several with the same files).
+	 */
+	private List<String> javaPlayed(String bedrock) {
+		Set<List<String>> lists = new LinkedHashSet<>();
+		for (Map.Entry<String, JsonElement> g : geyserSounds.entrySet()) {
+			JsonObject go = g.getValue().getAsJsonObject();
+			if (!go.has("playsound_mapping") || !go.get("playsound_mapping").getAsString().equals(bedrock) || !javaEvents.has(g.getKey())) {
+				continue;
+			}
+			Set<String> files = new LinkedHashSet<>();
+			for (JsonElement s : javaEvents.getAsJsonObject(g.getKey()).getAsJsonArray("sounds")) {
+				JsonObject so = s.isJsonObject() ? s.getAsJsonObject() : null;
+				if (so != null && so.has("type") && !so.get("type").getAsString().equals("file")) {
+					return List.of(); // an event of events
+				}
+				String file = so == null ? s.getAsString() : so.get("name").getAsString();
+				files.add(file.contains(":") ? file : "minecraft:" + file);
+			}
+			lists.add(List.copyOf(files));
+		}
+		return lists.size() == 1 ? lists.iterator().next() : List.of();
 	}
 
 	/** The Java sound id for a Bedrock file reference: a copied pack file, or the vanilla Java file it maps to. */

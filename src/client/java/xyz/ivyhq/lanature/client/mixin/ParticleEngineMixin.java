@@ -7,6 +7,7 @@ import net.minecraft.client.particle.ParticleEngine;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.state.level.ParticlesRenderState;
 import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.world.entity.Entity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -16,11 +17,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import xyz.ivyhq.lanature.client.entity.EntityScripts;
 import xyz.ivyhq.lanature.client.particle.BedrockParticleRenderState;
 import xyz.ivyhq.lanature.client.particle.ParticleSystem;
+import xyz.ivyhq.lanature.client.particle.SiteEffects;
 
 /**
  * Runs the Bedrock particle system alongside vanilla's: it ticks with the particle engine (after the client entity
  * scripts that start effects), draws through the same particle render state, and takes over the Java particle spawns
- * the pack replaces.
+ * and tracking emitters (a critical hit's, a totem's) the pack replaces.
  */
 @Mixin(ParticleEngine.class)
 abstract class ParticleEngineMixin {
@@ -32,6 +34,22 @@ abstract class ParticleEngineMixin {
 		CallbackInfoReturnable<Particle> cir) {
 		if (ParticleSystem.get().trigger(options, x, y, z, xa, ya, za)) {
 			cir.setReturnValue(null);
+		}
+	}
+
+	@Inject(method = "createTrackingEmitter(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/core/particles/ParticleOptions;)V", at = @At("HEAD"),
+		cancellable = true)
+	private void lanature$emitter(Entity entity, ParticleOptions particle, CallbackInfo ci) {
+		if (SiteEffects.trackingEmitter(entity, particle)) {
+			ci.cancel();
+		}
+	}
+
+	@Inject(method = "createTrackingEmitter(Lnet/minecraft/world/entity/Entity;Lnet/minecraft/core/particles/ParticleOptions;I)V", at = @At("HEAD"),
+		cancellable = true)
+	private void lanature$emitterFor(Entity entity, ParticleOptions particle, int lifeTime, CallbackInfo ci) {
+		if (SiteEffects.trackingEmitter(entity, particle)) {
+			ci.cancel();
 		}
 	}
 

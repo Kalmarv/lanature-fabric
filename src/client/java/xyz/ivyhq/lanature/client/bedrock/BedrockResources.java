@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import net.fabricmc.fabric.api.resource.v1.reloader.SimpleReloadListener;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -25,11 +26,13 @@ import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import xyz.ivyhq.lanature.client.entity.EntityDefinitions;
 import xyz.ivyhq.lanature.client.entity.EntityScripts;
 import xyz.ivyhq.lanature.client.environment.BiomeLooks;
+import xyz.ivyhq.lanature.client.environment.Colormaps;
 import xyz.ivyhq.lanature.client.model.EntityMaterial;
 import xyz.ivyhq.lanature.client.particle.Material;
 import xyz.ivyhq.lanature.client.particle.ParticleLoader;
@@ -37,25 +40,36 @@ import xyz.ivyhq.lanature.client.settings.PackSettings;
 
 /**
  * Loads the converted Bedrock data from {@code assets/lanature/bedrock/} on every resource reload: the pack's
- * settings, the block-name and biome tables, the particle effects, client entities and biome looks (fogs and colours).
+ * settings, the block-name, biome and item tables, the particle effects, client entities, biome looks (fogs and colours) and colour maps.
  */
 public final class BedrockResources extends SimpleReloadListener<BedrockResources.Loaded> {
 	public static final Identifier ID = Identifier.fromNamespaceAndPath("lanature", "bedrock");
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/resources");
 	private static final String ROOT = "bedrock";
 	private static volatile Map<String, BiomeInfo> biomes = Map.of();
+	private static volatile Map<String, ItemInfo> items = Map.of();
 
 	public record BiomeInfo(String bedrock, Set<String> tags) {
 	}
 
+	/** A Java item's Bedrock item tags and cooldown type ({@code attack}, {@code use}, or null without one). */
+	public record ItemInfo(Set<String> tags, @Nullable String cooldown) {
+		static final ItemInfo NONE = new ItemInfo(Set.of(), null);
+	}
+
 	/** Everything read off-thread, applied on the client thread. */
 	public record Loaded(JsonObject manifest, ParticleLoader.Result particles, EntityDefinitions entities, Map<String, BiomeInfo> biomes,
-		BiomeLooks.Table looks) {
+		Map<String, ItemInfo> items, BiomeLooks.Table looks, Colormaps.Loaded colormaps) {
 	}
 
 	/** Java biome id → its Bedrock biome and tags. */
 	public static Map<String, BiomeInfo> biomes() {
 		return biomes;
+	}
+
+	/** What a Java item's Bedrock item adds, as far as the converted data records it. */
+	public static ItemInfo item(String javaItem) {
+		return items.getOrDefault(javaItem, ItemInfo.NONE);
 	}
 
 	@Override
@@ -71,7 +85,14 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 			json(rm, ROOT + "/engine/entity.material.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
 			json(rm, ROOT + "/materials/entity.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()));
 		// the vanilla Bedrock files the pack relies on, then the pack's own over them
-		EntityDefinitions entities = EntityDefinitions.load(entityFiles(rm, ROOT + "/vanilla/"), entityFiles(rm, ROOT + "/"), entityMaterials,
+		EntityDefinitions.Files vanilla = entityFiles(rm, ROOT + "/vanilla/");
+		// render controllers the engine defines itself, under vanilla's
+		List<JsonObject> renderControllers = new ArrayList<>();
+		json(rm, ROOT + "/engine/render_controllers.json").ifPresent(e -> renderControllers.add(e.getAsJsonObject()));
+		renderControllers.addAll(vanilla.renderControllers());
+		vanilla = new EntityDefinitions.Files(vanilla.entities(), vanilla.attachables(), vanilla.controllers(), vanilla.animations(), vanilla.models(),
+			renderControllers);
+		EntityDefinitions entities = EntityDefinitions.load(vanilla, entityFiles(rm, ROOT + "/"), entityMaterials,
 			json(rm, ROOT + "/entity_scales.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()));
 		// the engine's own particle materials, then the pack's materials over them
 		Map<String, Material> materials = Material.table(
@@ -88,27 +109,43 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 			o.getAsJsonArray("tags").forEach(t -> tags.add(t.getAsString()));
 			biomeMap.put(e.getKey(), new BiomeInfo(o.get("bedrock").getAsString(), Set.copyOf(tags)));
 		}));
+		Map<String, ItemInfo> itemMap = new HashMap<>();
+		json(rm, ROOT + "/items.json").ifPresent(t -> t.getAsJsonObject().entrySet().forEach(e -> {
+			JsonObject o = e.getValue().getAsJsonObject();
+			Set<String> tags = new HashSet<>();
+			if (o.has("tags")) {
+				o.getAsJsonArray("tags").forEach(tag -> tags.add(tag.getAsString()));
+			}
+			itemMap.put(e.getKey(), new ItemInfo(Set.copyOf(tags), o.has("cooldown") ? o.get("cooldown").getAsString() : null));
+		}));
 		// vanilla fogs first, so the pack's own replace any of the same identifier
 		List<JsonObject> fogFiles = new ArrayList<>(files(rm, ROOT + "/vanilla/fogs"));
 		fogFiles.addAll(files(rm, ROOT + "/fogs"));
+		Colormaps.Loaded colormaps = Colormaps.load(rm, json(rm, ROOT + "/colormaps.json").map(JsonElement::getAsJsonObject).orElse(null));
 		BiomeLooks.Table looks = BiomeLooks.resolve(fogFiles, json(rm, ROOT + "/biomes_client.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
-			files(rm, ROOT + "/biomes"), biomeMap);
-		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), looks);
+			files(rm, ROOT + "/biomes"), biomeMap, colormaps.biomeMaps(),
+			BiomeLooks.VanillaWater.of(json(rm, ROOT + "/vanilla/biomes_client.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
+				files(rm, ROOT + "/vanilla/biomes")));
+		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), Map.copyOf(itemMap), looks, colormaps);
 	}
 
 	@Override
 	protected void apply(Loaded loaded, PreparableReloadListener.SharedState state) {
 		PackSettings.get().define(loaded.manifest());
 		biomes = loaded.biomes();
+		items = loaded.items();
 		loaded.particles().apply();
 		EntityScripts.get().load(loaded.entities());
 		ClientLevel level = Minecraft.getInstance().level;
+		// the maps first: binding samples them for each biome
+		Colormaps.apply(loaded.colormaps());
 		BiomeLooks.bind(loaded.looks(), level == null ? null : level.registryAccess());
-		LOGGER.info("Loaded {} Bedrock particle effects, {} particle triggers, {} client entities ({} modelled: {}; {} controllers, {} animations, "
-			+ "{} render controllers), {} pack settings, {} biome looks", loaded.particles().effects().size(), loaded.particles().triggers().size(),
-			loaded.entities().entities().size(), loaded.entities().modelled().size(), loaded.entities().modelled(), loaded.entities().controllers().size(),
-			loaded.entities().animations().size(), loaded.entities().renderControllers().size(), PackSettings.get().all().size(),
-			loaded.looks().byJavaId().size());
+		EntityDefinitions e = loaded.entities();
+		LOGGER.info("Loaded {} Bedrock particle effects, {} particle triggers, {} client entities ({} modelled: {}), {} attachables ({} modelled: {}; "
+			+ "{} controllers, {} animations, {} render controllers), {} pack settings, {} biome looks, colour maps {}", loaded.particles().effects().size(),
+			loaded.particles().triggers().size(), e.entities().size(), e.modelled().size(), e.modelled(), e.attachables().size(),
+			e.modelledAttachables().size(), e.modelledAttachables(), e.controllers().size(), e.animations().size(), e.renderControllers().size(),
+			PackSettings.get().all().size(), loaded.looks().byJavaId().size(), new TreeSet<>(loaded.colormaps().maps().keySet()));
 	}
 
 	/** Bedrock block name → the Java block states listed for it ({@code minecraft:water[level=0]} or a whole block). */
@@ -151,8 +188,8 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 	}
 
 	private static EntityDefinitions.Files entityFiles(ResourceManager rm, String root) {
-		return new EntityDefinitions.Files(files(rm, root + "entity"), files(rm, root + "animation_controllers"), files(rm, root + "animations"),
-			files(rm, root + "models"), files(rm, root + "render_controllers"));
+		return new EntityDefinitions.Files(files(rm, root + "entity"), files(rm, root + "attachables"), files(rm, root + "animation_controllers"),
+			files(rm, root + "animations"), files(rm, root + "models"), files(rm, root + "render_controllers"));
 	}
 
 	/** Every JSON object under a folder, in path order (a sub-folder's files sort among the rest). */

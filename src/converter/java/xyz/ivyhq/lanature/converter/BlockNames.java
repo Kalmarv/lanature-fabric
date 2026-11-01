@@ -12,13 +12,23 @@ import java.util.stream.Collectors;
 /**
  * Bedrock block name → the Java block states Geyser maps to it, for the Bedrock block names the runtime tests
  * ({@code assets/lanature/bedrock/block_names.json}). A Java block appears as its id when all of its states map to
- * the name, otherwise as each matching state ({@code minecraft:water[level=3]}).
+ * the name, otherwise as each matching state ({@code minecraft:water[level=3]}). A name nothing maps to is a block
+ * of another add-on, a name current Bedrock no longer has (renamed or split: {@code minecraft:leaves},
+ * {@code minecraft:skull}), or a Bedrock block Java has no block for ({@code minecraft:frame}, an entity in Java); a
+ * test of it matches nothing, as in Bedrock for the first two.
  */
 public final class BlockNames {
 	private BlockNames() {
 	}
 
-	public static void run(GeyserBlocks geyser, Set<String> names, Path assets, Report report) throws IOException {
+	/** The block names of Bedrock's vanilla data ({@code metadata/vanilladata_modules/mojang-blocks.json}). */
+	public static Set<String> vanillaBlocks(byte[] registry) {
+		Set<String> out = new java.util.HashSet<>();
+		Json.parse(registry).getAsJsonObject().getAsJsonArray("data_items").forEach(b -> out.add(b.getAsJsonObject().get("name").getAsString()));
+		return out;
+	}
+
+	public static void run(GeyserBlocks geyser, Set<String> names, Set<String> vanillaBlocks, Path assets, Report report) throws IOException {
 		Map<String, List<GeyserBlocks.JavaState>> byBedrock = geyser.byBedrock();
 		JsonObject out = new JsonObject();
 		int unmapped = 0;
@@ -37,7 +47,10 @@ public final class BlockNames {
 			});
 			if (java.isEmpty()) {
 				unmapped++;
-				report.warn("blocks", "particle block test names " + name + ", which no Java block state maps to");
+				String why = !name.startsWith("minecraft:") ? "a block of another add-on"
+					: !vanillaBlocks.contains(name) ? "not a block of current Bedrock (renamed or removed), so it matches nothing there either (inferred)"
+					: "a Bedrock block Java has no block for";
+				report.info("blocks", "particle block test names " + name + ", " + why + "; no Java block state maps to it");
 			}
 			out.add(name, java);
 		}

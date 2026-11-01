@@ -8,6 +8,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.AABB;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.jspecify.annotations.Nullable;
 import xyz.ivyhq.lanature.molang.Scope;
 import xyz.ivyhq.lanature.molang.Scope.Builtin;
 import xyz.ivyhq.lanature.molang.Variables;
@@ -29,12 +30,21 @@ public final class Emitter implements EffectSource {
 	final boolean oneShot;
 
 	/**
-	 * The entity this emitter follows, and its offset from the entity's position: fixed in world axes, or for a
-	 * {@code locator} a point in the entity's model space (Java axes, blocks) that turns with its body.
+	 * Where a locator emitter is on its entity's model, asked each tick: Java model axes and blocks, for the model facing
+	 * +Z before the body's yaw (a bone's locator moves with the bone's animation).
+	 */
+	@FunctionalInterface
+	public interface Locator {
+		Vector3f at();
+	}
+
+	/**
+	 * The entity this emitter follows, and its offset from the entity's position: fixed in world axes, or a
+	 * {@code locator} on the entity's model that turns with its body.
 	 */
 	final Entity entity;
 	private final Vector3f offset;
-	private final boolean locator;
+	private final @Nullable Locator locator;
 	double x;
 	double y;
 	double z;
@@ -58,19 +68,20 @@ public final class Emitter implements EffectSource {
 
 	Emitter(ParticleSystem system, ParticleEffect fx, double x, double y, double z, Entity entity, boolean oneShot) {
 		this(system, fx, x, y, z, entity, entity == null ? new Vector3f()
-			: new Vector3f((float) (x - entity.getX()), (float) (y - entity.getY()), (float) (z - entity.getZ())), false, oneShot);
+			: new Vector3f((float) (x - entity.getX()), (float) (y - entity.getY()), (float) (z - entity.getZ())), null, oneShot);
 	}
 
 	/** An emitter at a locator of an entity's model. */
-	Emitter(ParticleSystem system, ParticleEffect fx, Entity entity, Vector3f locator, boolean oneShot) {
-		this(system, fx, entity.getX(), entity.getY(), entity.getZ(), entity, new Vector3f(locator), true, oneShot);
+	Emitter(ParticleSystem system, ParticleEffect fx, Entity entity, Locator locator, boolean oneShot) {
+		this(system, fx, entity.getX(), entity.getY(), entity.getZ(), entity, new Vector3f(), locator, oneShot);
 		Vector3f p = offset();
 		this.x = this.prevX = entity.getX() + p.x;
 		this.y = this.prevY = entity.getY() + p.y;
 		this.z = this.prevZ = entity.getZ() + p.z;
 	}
 
-	private Emitter(ParticleSystem system, ParticleEffect fx, double x, double y, double z, Entity entity, Vector3f offset, boolean locator, boolean oneShot) {
+	private Emitter(ParticleSystem system, ParticleEffect fx, double x, double y, double z, Entity entity, Vector3f offset, @Nullable Locator locator,
+		boolean oneShot) {
 		this.system = system;
 		this.fx = fx;
 		this.oneShot = oneShot;
@@ -179,7 +190,19 @@ public final class Emitter implements EffectSource {
 
 	/** The followed point's current offset from the entity's position, in world axes. */
 	private Vector3f offset() {
-		return locator ? new Vector3f(offset).rotateY((float) Math.toRadians(-bodyYaw(entity))) : new Vector3f(offset);
+		return locator != null ? locator.at().rotateY((float) Math.toRadians(-bodyYaw(entity))) : new Vector3f(offset);
+	}
+
+	/**
+	 * The locator of an emitter bound to this one and started at a world point: this emitter's locator plus the point's
+	 * offset from it, so it moves with the same bone; null when this emitter has no locator.
+	 */
+	@Nullable Locator boundLocator(double wx, double wy, double wz) {
+		if (locator == null) {
+			return null;
+		}
+		Vector3f delta = new Vector3f((float) (wx - x), (float) (wy - y), (float) (wz - z)).rotateY((float) Math.toRadians(bodyYaw(entity)));
+		return () -> locator.at().add(delta);
 	}
 
 	static float bodyYaw(Entity e) {
