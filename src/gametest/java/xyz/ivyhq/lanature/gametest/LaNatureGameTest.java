@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import net.minecraft.world.attribute.EnvironmentAttributes;
+import xyz.ivyhq.lanature.client.bedrock.BlockSounds;
 import xyz.ivyhq.lanature.client.entity.EntityScripts;
 import xyz.ivyhq.lanature.client.environment.BiomeLooks;
 import xyz.ivyhq.lanature.client.environment.Colormaps;
@@ -810,6 +811,22 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			return sb.toString();
 		});
 		LOGGER.info("Block states: {}", states);
+		String sounds = context.computeOnClient(mc -> {
+			StringBuilder sb = new StringBuilder();
+			for (net.minecraft.world.level.block.Block b : new net.minecraft.world.level.block.Block[] {net.minecraft.world.level.block.Blocks.WHEAT,
+				net.minecraft.world.level.block.Blocks.PUMPKIN, net.minecraft.world.level.block.Blocks.OAK_SAPLING, net.minecraft.world.level.block.Blocks.CACTUS,
+				net.minecraft.world.level.block.Blocks.MELON_STEM, net.minecraft.world.level.block.Blocks.STONE}) {
+				net.minecraft.world.level.block.SoundType pack = b.defaultBlockState().getSoundType();
+				java.util.Map<net.minecraft.world.level.block.Block, net.minecraft.world.level.block.SoundType> table = BlockSounds.table();
+				BlockSounds.set(java.util.Map.of());
+				net.minecraft.world.level.block.SoundType java = b.defaultBlockState().getSoundType();
+				BlockSounds.set(table);
+				sb.append("\n  ").append(b.builtInRegistryHolder().getRegisteredName()).append(": break ").append(pack.getBreakSound().location())
+					.append(" step ").append(pack.getStepSound().location()).append(" | Java break ").append(java.getBreakSound().location());
+			}
+			return sb.toString();
+		});
+		LOGGER.info("Block sounds (pack, then Java's): {}", sounds);
 		context.takeScreenshot("lanature-blocks-row");
 		for (int[] close : new int[][] {{211, 0}, {218, 0}, {222, 0}, {226, 0}, {230, 0}, {233, 0}, {212, 4}, {217, 4}, {222, 4}}) {
 			server.runCommand("tp @p " + (close[0] + 0.5) + " 100.6 " + (close[1] + 3.2) + " 180 30");

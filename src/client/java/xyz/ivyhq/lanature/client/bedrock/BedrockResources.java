@@ -24,6 +24,7 @@ import net.minecraft.server.packs.resources.PreparableReloadListener;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
 import org.jspecify.annotations.Nullable;
@@ -41,7 +42,8 @@ import xyz.ivyhq.lanature.client.settings.PackSettings;
 
 /**
  * Loads the converted Bedrock data from {@code assets/lanature/bedrock/} on every resource reload: the pack's
- * settings, the block-name, biome and item tables, the particle effects, client entities, biome looks (fogs and colours), colour maps and leash colours.
+ * settings, the block-name, biome and item tables, the particle effects, client entities, biome looks (fogs and colours), colour maps, leash colours
+ * and block sound groups.
  */
 public final class BedrockResources extends SimpleReloadListener<BedrockResources.Loaded> {
 	public static final Identifier ID = Identifier.fromNamespaceAndPath("lanature", "bedrock");
@@ -60,7 +62,8 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 
 	/** Everything read off-thread, applied on the client thread. */
 	public record Loaded(JsonObject manifest, ParticleLoader.Result particles, EntityDefinitions entities, Map<String, BiomeInfo> biomes,
-		Map<String, ItemInfo> items, BiomeLooks.Table looks, Colormaps.Loaded colormaps, @Nullable LeashColours leash) {
+		Map<String, ItemInfo> items, BiomeLooks.Table looks, Colormaps.Loaded colormaps, @Nullable LeashColours leash,
+		Map<Block, SoundType> blockSounds) {
 	}
 
 	/** Java biome id → its Bedrock biome and tags. */
@@ -128,7 +131,8 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 			BiomeLooks.VanillaWater.of(json(rm, ROOT + "/vanilla/biomes_client.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
 				files(rm, ROOT + "/vanilla/biomes")));
 		LeashColours leash = LeashColours.parse(json(rm, ROOT + "/lead_rope.json").map(JsonElement::getAsJsonObject).orElse(null));
-		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), Map.copyOf(itemMap), looks, colormaps, leash);
+		Map<Block, SoundType> blockSounds = BlockSounds.resolve(json(rm, ROOT + "/block_sounds.json").map(JsonElement::getAsJsonObject).orElse(null));
+		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), Map.copyOf(itemMap), looks, colormaps, leash, blockSounds);
 	}
 
 	@Override
@@ -137,6 +141,7 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 		biomes = loaded.biomes();
 		items = loaded.items();
 		LeashColours.set(loaded.leash());
+		BlockSounds.set(loaded.blockSounds());
 		loaded.particles().apply();
 		EntityScripts.get().load(loaded.entities());
 		ClientLevel level = Minecraft.getInstance().level;

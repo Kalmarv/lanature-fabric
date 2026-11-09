@@ -99,6 +99,11 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   rope (`textures/entity/lead_rope`) gives the light segments the mean of its first half and the dark ones of its
   second (`bedrock/lead_rope.json`, a `LeashFeatureRenderer` mixin; inferred, Bedrock's rope UV scale not being
   published).
+* **Block sound groups.** `blocks.json` names a block's sounds by a group (`fungus`, `roots`); the pack moves 26 Java
+  blocks' Bedrock blocks to other groups (crops to roots, pumpkins and cactus to fungus, saplings to bamboo sapling).
+  For each, `bedrock/block_sounds.json` lists the Java blocks in that group in vanilla Bedrock that the pack leaves
+  there (the group's namesake first), and the block takes their most common Java sound type (a `BlockStateBase`
+  mixin). Sounds the server plays for other players on a multiplayer server stay the server's.
 * **Runtime data.** The particles, client entities, animation controllers, animations, render controllers, geometry,
   attachables, fogs, client biomes, manifest settings and language files go to `assets/lanature/bedrock/`. Textures
   the runtime references go to `assets/lanature/textures/bedrock/<sanitised bedrock path>.png`, which a

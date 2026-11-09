@@ -68,6 +68,7 @@ public final class Main {
 		new PathOverrides(pack, identity, java, assets, report).run();
 		BedSheets.run(pack, java, assets, report);
 		LeadRope.run(pack, assets, report);
+		BlockSounds.run(bedrockBlocks, geyser, assets, report);
 		PotionModels.run(pack, java, resource("potion_textures.json"), assets, report);
 		EndPortalColors.run(pack, java, assets, report);
 		WeatherSheets.run(pack, java, assets, report);
