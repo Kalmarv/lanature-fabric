@@ -54,7 +54,7 @@ public final class ModelRenderer {
 			}
 			int partLight = draw.ignoreLighting() ? LightCoordsUtil.FULL_BRIGHT : light;
 			OrderedSubmitNodeCollector layer = collector.order(p);
-			byMaterial.forEach((material, bones) -> layer.submitCustomGeometry(poseStack, material.renderType(draw.texture()),
+			byMaterial.forEach((material, bones) -> layer.submitCustomGeometry(poseStack, material.renderType(draw.texture(), draw.texture1()),
 				(pose, buffer) -> {
 					int overlayCoords = material.overlayCoords(overlay, draw.overlayColor());
 					int vertexColor = material.vertexColor(color, draw.changeColor());
@@ -65,7 +65,7 @@ public final class ModelRenderer {
 				}));
 			if (outlineColor != 0) {
 				byMaterial.forEach((material, bones) -> {
-					RenderType renderType = material.renderType(draw.texture());
+					RenderType renderType = material.renderType(draw.texture(), draw.texture1());
 					RenderType outline = renderType.isOutline() ? renderType : renderType.outline().orElse(null);
 					if (outline != null) {
 						layer.submitCustomGeometry(poseStack, outline, (pose, buffer) -> {

@@ -24,15 +24,15 @@ import xyz.ivyhq.lanature.molang.Scope;
  * show. Its fields are Molang over the entity's {@code geometry.}, {@code texture.} and {@code material.} names and the
  * controller's own {@code array.} lists (indexed as Bedrock does: negative indices clamp to 0, larger ones wrap).
  * Material and visibility rules match bone names with {@code *} wildcards, without regard to case; later rules
- * override earlier ones. Only the first texture is drawn (later ones are Bedrock's enchantment glint and colour-mask
- * layers). {@code overlay_color} ({@code r}, {@code g}, {@code b}, {@code a}; {@code this} is 0, Bedrock's default
+ * override earlier ones. The first texture is drawn, and the second by {@code MASKED_MULTITEXTURE} materials (the
+ * others' later textures are Bedrock's enchantment glint and colour-mask layers). {@code overlay_color} ({@code r}, {@code g}, {@code b}, {@code a}; {@code this} is 0, Bedrock's default
  * of none) is mixed over the texture by materials with {@code USE_OVERLAY}, by its alpha; {@code color} (the same
  * channels, {@code this} being the engine's colour) is the change colour of materials with {@code USE_COLOR_MASK},
  * which without it is the engine's colour (a collar's or wool's dye, else white), and
  * {@code uv_anim} ({@code offset} and {@code scale}, each u and v) moves the texture coordinates of materials with
  * {@code USE_UV_ANIM} (see {@link EntityMaterial}).
  */
-public record RenderController(String id, Map<String, List<Node>> arrays, Node geometry, @Nullable Node texture, List<Rule> materials,
+public record RenderController(String id, Map<String, List<Node>> arrays, Node geometry, List<Node> textures, List<Rule> materials,
 	List<Rule> partVisibility, boolean ignoreLighting, @Nullable Node[] overlayColor, @Nullable Node[] color, @Nullable Node[] uvAnim) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/entities");
 
@@ -55,12 +55,13 @@ public record RenderController(String id, Map<String, List<Node>> arrays, Node g
 	}
 
 	/**
-	 * What a controller draws this frame: the geometry, its texture, each bone's material (null: hidden), lighting, the
-	 * overlay colour as {@code 0xAABBGGRR} (0 for none; see {@link EntityMaterial#overlayCoords}), the change colour as
-	 * ARGB, and the texture coordinates' offset and scale (u, v, u, v; null for none).
+	 * What a controller draws this frame: the geometry, its texture and second texture (null for none; a
+	 * {@code MASKED_MULTITEXTURE} material's), each bone's material (null: hidden), lighting, the overlay colour as
+	 * {@code 0xAABBGGRR} (0 for none; see {@link EntityMaterial#overlayCoords}), the change colour as ARGB, and the
+	 * texture coordinates' offset and scale (u, v, u, v; null for none).
 	 */
-	public record Draw(Geometry geometry, Identifier texture, @Nullable EntityMaterial[] boneMaterials, boolean ignoreLighting, int overlayColor,
-		int changeColor, float @Nullable [] uvAnim) {
+	public record Draw(Geometry geometry, Identifier texture, @Nullable Identifier texture1, @Nullable EntityMaterial[] boneMaterials,
+		boolean ignoreLighting, int overlayColor, int changeColor, float @Nullable [] uvAnim) {
 		/** A vertex's texture coordinate {@code uv} (u when {@code axis} is 0, else v) drawn with a material. */
 		public float uv(EntityMaterial material, int axis, float uv) {
 			return material.uvAnim() && uvAnim != null ? uvAnim[axis] + uv * uvAnim[2 + axis] : uv;
@@ -101,10 +102,11 @@ public record RenderController(String id, Map<String, List<Node>> arrays, Node g
 			if (!(Molang.value(geometry, s) instanceof Geometry g)) {
 				return null;
 			}
-			Object tex = texture == null ? null : Molang.value(texture, s);
+			Object tex = textures.isEmpty() ? null : Molang.value(textures.getFirst(), s);
 			if (!(tex instanceof Identifier t)) {
 				return null;
 			}
+			Identifier t1 = textures.size() > 1 && Molang.value(textures.get(1), s) instanceof Identifier second ? second : null;
 			EntityMaterial[] boneMaterials = new EntityMaterial[g.bones().size()];
 			java.util.Arrays.fill(boneMaterials, fallbackMaterial);
 			for (Rule r : materials) {
@@ -140,7 +142,7 @@ public record RenderController(String id, Map<String, List<Node>> arrays, Node g
 				float[] c = channels(color, engine, s);
 				change = pack(c[3], c[0], c[1], c[2]);
 			}
-			return new Draw(g, t, boneMaterials, ignoreLighting, overlay, change, uvAnim == null ? null : channels(uvAnim, new float[4], s));
+			return new Draw(g, t, t1, boneMaterials, ignoreLighting, overlay, change, uvAnim == null ? null : channels(uvAnim, new float[4], s));
 		} finally {
 			s.resources = entity;
 		}
@@ -209,9 +211,10 @@ public record RenderController(String id, Map<String, List<Node>> arrays, Node g
 			}
 		}
 		Node geometry = Expr.scalar(c.get("geometry"), 0);
-		Node texture = c.has("textures") && c.get("textures").isJsonArray() && !c.getAsJsonArray("textures").isEmpty()
-			? Expr.scalar(c.getAsJsonArray("textures").get(0), 0)
-			: null;
+		List<Node> textures = new ArrayList<>();
+		if (c.has("textures") && c.get("textures").isJsonArray()) {
+			c.getAsJsonArray("textures").forEach(x -> textures.add(Expr.scalar(x, 0)));
+		}
 		boolean ignoreLighting = c.has("ignore_lighting") && c.get("ignore_lighting").getAsBoolean();
 		Node[] uvAnim = null;
 		if (c.has("uv_anim") && c.get("uv_anim").isJsonObject()) {
@@ -220,7 +223,7 @@ public record RenderController(String id, Map<String, List<Node>> arrays, Node g
 			Node[] scale = pair(o.get("scale"), 1);
 			uvAnim = new Node[] {offset[0], offset[1], scale[0], scale[1]};
 		}
-		return new RenderController(id, Map.copyOf(arrays), geometry, texture, rules(c.get("materials")), rules(c.get("part_visibility")), ignoreLighting,
+		return new RenderController(id, Map.copyOf(arrays), geometry, List.copyOf(textures), rules(c.get("materials")), rules(c.get("part_visibility")), ignoreLighting,
 			rgba(c.get("overlay_color"), 0), rgba(c.get("color"), 1), uvAnim);
 	}
 

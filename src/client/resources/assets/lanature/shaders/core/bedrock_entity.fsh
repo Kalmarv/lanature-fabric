@@ -16,8 +16,13 @@
 // BEDROCK_COLOR_MASK is Bedrock's USE_COLOR_MASK: the change colour (the render controller's color, else the engine's
 // collar or wool dye; its alpha is in the vertex colour's) tints a texel as far as the texel's alpha.
 // GLINT adds Java's enchantment glint as vanilla's core/entity does.
+// BEDROCK_MASKED_MULTITEXTURE is Bedrock's MASKED_MULTITEXTURE (the villager's profession over its biome clothes): the
+// second texture replaces the first, except where it is coloured but not opaque; before the alpha test, as Bedrock's.
 
 uniform sampler2D Sampler0;
+#ifdef BEDROCK_MASKED_MULTITEXTURE
+uniform sampler2D MaskSampler;
+#endif
 #ifdef GLINT
 uniform sampler2D GlintSampler;
 #endif
@@ -42,6 +47,10 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     vec4 color = texture(Sampler0, texCoord0);
+    #ifdef BEDROCK_MASKED_MULTITEXTURE
+    vec4 second = texture(MaskSampler, texCoord0);
+    color = mix(second, color, clamp(ceil(dot(second.rgb, vec3(1.0)) * (1.0 - second.a)), 0.0, 1.0));
+    #endif
 
     #ifdef ALPHA_TEST
     #ifdef BEDROCK_EMISSIVE

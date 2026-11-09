@@ -35,6 +35,7 @@ import net.minecraft.world.entity.animal.golem.CopperGolem;
 import net.minecraft.world.entity.animal.parrot.Parrot;
 import net.minecraft.world.entity.boss.enderdragon.EndCrystal;
 import net.minecraft.world.entity.monster.warden.Warden;
+import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.player.PlayerModelPart;
 import net.minecraft.world.entity.projectile.FishingHook;
@@ -50,6 +51,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import xyz.ivyhq.lanature.client.bedrock.BedrockResources;
+import xyz.ivyhq.lanature.client.entity.BehaviourVariants;
 import xyz.ivyhq.lanature.client.mixin.LivingEntityAccessor;
 import xyz.ivyhq.lanature.client.particle.PictureEffects;
 import xyz.ivyhq.lanature.molang.Functions;
@@ -255,6 +257,14 @@ public final class EntityQueries {
 		});
 		// Bedrock's variant index: the texture a variant mob picks from its render controller's array
 		value("variant", EntityQueries::variant);
+		// a villager's biome clothes, by the behaviour pack's <type>_villager groups (plains has none: 0)
+		value("mark_variant", e -> e instanceof Villager v
+			? BehaviourVariants.of(VILLAGER, "mark_variant", path(v.getVillagerData().type()) + "_villager", 0) : 0);
+		// Bedrock picks one of a villager's six skins at random when it spawns; Java has one skin, and the pack's six
+		// base textures are one picture, so the first stands for all
+		value("skin_id", e -> 0);
+		// a villager's trade tier counts from 0 over its five level badges (stone to diamond); Java's level from 1
+		value("trade_tier", e -> e instanceof Villager v ? Math.max(0, v.getVillagerData().level() - 1) : 0);
 		// the experience orb's size, 0 to 10, by its value
 		value("texture_frame_index", e -> e instanceof ExperienceOrb orb ? orb.getIcon() : 0);
 		Functions.registerQuery("property", (s, a) -> {
@@ -439,8 +449,22 @@ public final class EntityQueries {
 			case Fox f -> f.getVariant().getId();
 			case Pufferfish p -> p.getPuffState();
 			case AbstractThrownPotion p -> potionVariant(p.getItem().getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY));
+			// a villager's profession, by the behaviour pack's groups of the same names (Java's none is its unskilled)
+			case Villager v -> BehaviourVariants.of(VILLAGER, "variant", professionGroup(path(v.getVillagerData().profession())), 0);
 			default -> 0;
 		};
+	}
+
+	/** Bedrock's villager, whose behaviour groups the villager queries read. */
+	private static final String VILLAGER = "minecraft:villager_v2";
+
+	private static String professionGroup(String javaProfession) {
+		return javaProfession.equals("none") ? "unskilled" : javaProfession;
+	}
+
+	/** A registry entry's id path ({@code farmer}, {@code desert}), empty when unregistered. */
+	private static String path(Holder<?> holder) {
+		return holder.unwrapKey().map(k -> k.identifier().getPath()).orElse("");
 	}
 
 	/**

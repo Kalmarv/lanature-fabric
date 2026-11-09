@@ -43,10 +43,10 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<I
 
 	/**
 	 * Entities whose Java look the port keeps even though the pack remodels them: Java draws the player's skin, cape,
-	 * armour and held items, and the villager's biome and profession layers, through layers on its own model, and
-	 * the Bedrock render controllers for them use multi-texture and colour-mask materials the port does not draw.
+	 * armour and held items through layers on its own model, which the pack's player render controllers leave to the
+	 * engine.
 	 */
-	private static final java.util.Set<String> JAVA_MODEL = java.util.Set.of("minecraft:player", "minecraft:villager_v2");
+	private static final java.util.Set<String> JAVA_MODEL = java.util.Set.of("minecraft:player");
 	/**
 	 * Entities kept on Java's model whose Bedrock animations still pose it: Java's humanoid model takes, for each of its
 	 * parts, the pose of the Bedrock geometry's bone of the same name. The pack replaces the whole player animation set
@@ -117,8 +117,8 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<I
 	}
 
 	/** Loads the vanilla files, then the pack's over them (same identifiers replace); {@code materials} by name. */
-	/** {@code scales}: the behaviour pack's scale of each entity (see {@link BehaviourScale}), by Bedrock identifier. */
-	public static EntityDefinitions load(Files vanilla, Files pack, Map<String, EntityMaterial> materials, JsonObject scales) {
+	/** {@code behaviour}: what the behaviour pack sets for each entity (its scale, see {@link BehaviourScale}), by Bedrock identifier. */
+	public static EntityDefinitions load(Files vanilla, Files pack, Map<String, EntityMaterial> materials, JsonObject behaviour) {
 		Map<String, Geometry> geometries = new HashMap<>(Geometry.load(vanilla.models()));
 		Map<String, Geometry> packGeometries = Geometry.load(pack.models());
 		geometries.putAll(packGeometries);
@@ -133,7 +133,7 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<I
 		for (JsonObject f : concat(vanilla.animations(), pack.animations())) {
 			section(f, "animations").forEach((id, v) -> guarded(id, () -> animations.put(id, animation(id, v))));
 		}
-		Sources sources = new Sources(geometries, packGeometries.keySet(), renderControllers, packRenderControllers.keySet(), materials, scales);
+		Sources sources = new Sources(geometries, packGeometries.keySet(), renderControllers, packRenderControllers.keySet(), materials, behaviour);
 		Map<EntityType<?>, ClientEntity> entities = new HashMap<>();
 		for (JsonObject f : concat(vanilla.entities(), pack.entities())) {
 			JsonObject desc = description(f, "minecraft:client_entity");
@@ -147,7 +147,7 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<I
 				LOGGER.info("Client entity {} has no Java entity; skipped", id);
 				continue;
 			}
-			BehaviourScale scale = sources.scales().has(id) ? BehaviourScale.parse(sources.scales().getAsJsonObject(id)) : BehaviourScale.NONE;
+			BehaviourScale scale = sources.behaviour().has(id) ? BehaviourScale.parse(sources.behaviour().getAsJsonObject(id)) : BehaviourScale.NONE;
 			guarded(id, () -> entities.put(type, entity(id, desc, sources, scale)));
 		}
 		// attachables are named by the item they draw, whose Bedrock and Java identifiers agree
@@ -177,7 +177,7 @@ public record EntityDefinitions(Map<EntityType<?>, ClientEntity> entities, Map<I
 	}
 
 	private record Sources(Map<String, Geometry> geometries, java.util.Set<String> packGeometries, Map<String, RenderController> renderControllers,
-		java.util.Set<String> packRenderControllers, Map<String, EntityMaterial> materials, JsonObject scales) {
+		java.util.Set<String> packRenderControllers, Map<String, EntityMaterial> materials, JsonObject behaviour) {
 	}
 
 	private static List<JsonObject> concat(List<JsonObject> a, List<JsonObject> b) {

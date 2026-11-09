@@ -54,7 +54,8 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			// the block and item break effects, =events only the crit, totem, splash and smash effects, =poses only the
 			// player's poses that Java's renderer also turns (crawling, swimming, riding, gliding, sleeping) and its item
 			// uses, =modmenu only the mod list, =blocks only the blocks whose look depends on state, flipbooks or Bedrock
-			// entity sheets (hoppers, redstone, cake, two-part plants, beds, the enchanting table, a leash)
+			// entity sheets (hoppers, redstone, cake, two-part plants, beds, the enchanting table, a leash), =villagers only
+			// villagers of several professions, biomes and levels, babies and the pack's named humanoids
 			if ("entities".equals(System.getenv("LANATURE_GAMETEST"))) {
 				entities(context, server, world);
 				return;
@@ -85,6 +86,10 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			}
 			if ("poses".equals(System.getenv("LANATURE_GAMETEST"))) {
 				poses(context, server, world);
+				return;
+			}
+			if ("villagers".equals(System.getenv("LANATURE_GAMETEST"))) {
+				villagers(context, server, world);
 				return;
 			}
 			if ("blocks".equals(System.getenv("LANATURE_GAMETEST"))) {
@@ -754,6 +759,72 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 	}
 
 	/**
+	 * Villagers drawn by the pack's controllers: a row of professions, biomes and levels (the masked profession-over-biome
+	 * material, the level badge), then babies (the pack's default baby model) and the names the pack draws as humanoids
+	 * (player skins, LaCarotteRebel's cape); each from the front, Bedrock then Java.
+	 */
+	private static void villagers(ClientGameTestContext context, TestServerContext server, TestSingleplayerContext world) {
+		server.runCommand("gamerule fall_damage false");
+		server.runCommand("tp @p 300.5 104 10.5 180 20");
+		context.waitTicks(40);
+		world.getConnection().waitForChunksRender();
+		server.runCommand("fill 290 98 -8 316 98 12 minecraft:stone");
+		server.runCommand("fill 290 99 -8 316 110 12 minecraft:air");
+		// profession, biome type, level
+		String[][] adults = {{"farmer", "plains", "1"}, {"librarian", "desert", "3"}, {"armorer", "snow", "5"}, {"nitwit", "taiga", "1"},
+			{"none", "swamp", "1"}, {"cleric", "jungle", "2"}, {"fletcher", "savanna", "4"}};
+		for (int i = 0; i < adults.length; i++) {
+			server.runCommand("summon minecraft:villager " + (294.5 + i * 2) + " 99 -2.5 {VillagerData:{profession:\"minecraft:" + adults[i][0]
+				+ "\",type:\"minecraft:" + adults[i][1] + "\",level:" + adults[i][2] + "},NoAI:1b,Invulnerable:1b,Rotation:[0f,0f]}");
+		}
+		String[] others = {"Age:-24000,VillagerData:{type:\"minecraft:plains\"}", "Age:-24000,VillagerData:{type:\"minecraft:desert\"}",
+			"CustomName:\"Steve\"", "CustomName:\"Alex\"", "CustomName:\"Trippin\"", "CustomName:\"LaCarotteRebel\""};
+		for (int i = 0; i < others.length; i++) {
+			server.runCommand("summon minecraft:villager " + (296.5 + i * 2) + " 99 4.5 {" + others[i] + ",NoAI:1b,Invulnerable:1b,Rotation:[0f,0f]}");
+		}
+		server.runCommand("time set 6000");
+		world.getConnection().waitForChunksRender();
+		context.waitTicks(40);
+		String state = context.computeOnClient(mc -> {
+			StringBuilder sb = new StringBuilder();
+			for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+				if (e instanceof net.minecraft.world.entity.npc.villager.Villager v) {
+					sb.append("\n  ").append(v.getVillagerData().profession().getRegisteredName()).append(' ')
+						.append(v.getVillagerData().type().getRegisteredName()).append(" level ").append(v.getVillagerData().level())
+						.append(v.isBaby() ? " baby" : "").append(e.hasCustomName() ? " \"" + e.getCustomName().getString() + "\"" : "")
+						.append(": ").append(describe(EntityScripts.get().model(e, 1)));
+				}
+			}
+			return sb.toString();
+		});
+		LOGGER.info("Villager models: {}", state);
+		for (String[] shot : new String[][] {{"adults", "300.5", "-2.5"}, {"others", "301.5", "4.5"}}) {
+			server.runCommand("tp @p " + shot[1] + " 100.2 " + (Double.parseDouble(shot[2]) + 4.5) + " 180 12");
+			world.getConnection().waitForChunksRender();
+			context.waitTicks(20);
+			context.takeScreenshot("lanature-villagers-" + shot[0]);
+			context.runOnClient(mc -> EntityScripts.get().setModels(false));
+			context.waitTicks(2);
+			context.takeScreenshot("lanature-villagers-" + shot[0] + "-java");
+			context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		}
+		// close-ups (x, z, from behind): the snow armorer (level 5 badge), the swamp unskilled, a baby, Steve,
+		// LaCarotteRebel and his cape
+		for (double[] c : new double[][] {{298.5, -2.5, 0}, {302.5, -2.5, 0}, {296.5, 4.5, 0}, {300.5, 4.5, 0}, {306.5, 4.5, 0},
+			{306.5, 4.5, 1}}) {
+			boolean behind = c[2] != 0;
+			server.runCommand("tp @p " + c[0] + " 100.0 " + (c[1] + (behind ? -2.2 : 2.2)) + (behind ? " 0 10" : " 180 10"));
+			context.waitTicks(10);
+			String name = "lanature-villagers-" + (int) c[0] + "-" + (int) c[1] + (behind ? "-back" : "");
+			context.takeScreenshot(name);
+			context.runOnClient(mc -> EntityScripts.get().setModels(false));
+			context.waitTicks(2);
+			context.takeScreenshot(name + "-java");
+			context.runOnClient(mc -> EntityScripts.get().setModels(true));
+		}
+	}
+
+	/**
 	 * Blocks whose pack look the converter derives from more than one tile entry: a working and a powered hopper (the
 	 * pack marks power on its rim), a lit and an unlit redstone torch, a powered and an unpowered repeater and
 	 * comparator (the pack's flipbooks animate the lit parts), a bitten cake, a sunflower, an open eyeblossom and a
@@ -1126,7 +1197,7 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			return "Java model";
 		}
 		return m.parts().stream().map(p -> p.draw().geometry().id() + " " + p.draw().texture()
-			+ " " + java.util.Arrays.stream(p.draw().boneMaterials()).filter(java.util.Objects::nonNull).distinct().toList()
+			+ (p.draw().texture1() != null ? " + " + p.draw().texture1() : "") + " " + java.util.Arrays.stream(p.draw().boneMaterials()).filter(java.util.Objects::nonNull).distinct().toList()
 			+ (p.draw().changeColor() != -1 ? String.format(" color #%08X", p.draw().changeColor()) : "")
 			+ (p.draw().uvAnim() != null ? " uv_anim " + java.util.Arrays.toString(p.draw().uvAnim()) : "")).toList() + " scale " + m.scale();
 	}

@@ -125,9 +125,12 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   body (28.287°) and feather, the villager's hat brim. The game's animations still assume them (the fox's setup
   animation's `"-this"` leaves its body at 90°), so drawn without them those bodies stand upright. `BindPoses` copies
   a bone's bind pose from v1.21.0.3 (which still has them) when the current bone has neither a rotation nor a bind pose and the same cubes.
-* **Entity scales.** `bedrock/entity_scales.json`: each pack client entity's behaviour `minecraft:scale` from its
-  components, its baby groups and its other groups (the cat's `cat_adult` 0.8, the salmon's three sizes). Java
-  bakes the same sizes into its model meshes; Bedrock's client data never sees them.
+* **Entity behaviour.** `bedrock/entity_behaviour.json`, per pack client entity, from vanilla's behaviour pack: its
+  `minecraft:scale` from its components, its baby groups and its other groups (the cat's `cat_adult` 0.8, the salmon's
+  three sizes; Java bakes the same sizes into its model meshes, and Bedrock's client data never sees them), and
+  `variants`, the value each component group sets for `minecraft:variant`, `minecraft:mark_variant` and
+  `minecraft:skin_id`, by group name (the villager's `farmer` 1, `desert_villager` 1). These numbers are server state
+  that a render controller indexes its texture arrays by; the runtime picks the group a Java state stands for.
 * **Icon.** `assets/lanature/icon.png`, the mod's icon in `fabric.mod.json`: the pack's `pack_icon.png` scaled to
   256 pixels square (halved in bilinear steps), so the repository carries no pack image either.
 * **Triggers.** `assets/lanature/bedrock/triggers.json` maps Java particle types to the Bedrock effect identifiers
@@ -219,8 +222,7 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   above 0, else 3 walk, in the precedence of Java's cat model), `liedownamount`, `liedownamounttail` and
   `lieonplayer`; a fish's `AnimationAmount`, taken to advance one per tick (inferred, as Java's fish tails run on age).
 * **Entity models** (`model/`): an entity is modelled when the pack gives it its own geometry or render controller and
-  every render controller it names exists (the villager stays Java's; the player keeps Java's model, posed by the pack's
-  animations, below). Its render controllers, in
+  every render controller it names exists (the player keeps Java's model, posed by the pack's animations, below). Its render controllers, in
   order, each give a geometry, texture, per-bone materials (glob patterns, later rules over earlier) and part
   visibility (likewise in order: `{"*": false}` then `{"light": true}` shows only the light). Each part draws over the
   ones before (`SubmitNodeCollector.order`), as Bedrock layers eyes and cracks.
@@ -254,6 +256,14 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
     and with its eye above the water reads as not in water and at no speed (`is_in_water`, `ground_speed`,
     `vertical_speed`), so the pack's float states play; its dive after the cast and a bite pulling it under still
     count as in the water (inferred).
+  * Villagers: the pack's render controllers draw a base skin, the biome clothes with the profession masked over them
+    (`villager_v2_masked`, not for babies or the unskilled) and the level badge, or, for a villager named Steve, Alex,
+    Squarepancake08, Trippin or LaCarotteRebel, a player-shaped body in that skin (LaCarotteRebel with his own geometry
+    and a cape). Their queries: `q.variant` is the profession's behaviour group value (no profession reads as
+    `unskilled`), `q.mark_variant` the biome type's (`<type>_villager`; plains has no group and reads 0), `q.trade_tier`
+    Java's level less one, and `q.skin_id` 0: Bedrock gives each villager one of six skins at random, and the pack's
+    six skins are one texture. Babies follow the pack's `lnbc:baby_mob_model` setting: by default the adult geometry
+    under `baby_transform`, and with `vanilla` Bedrock's own baby model.
   * Entities the pack scripts but does not remodel (the warden) keep Java's model; their queries still matter to the
     scripts' particles and sounds. The warden's: `is_emerging`, `is_digging`, `is_roaring` and `is_sniffing` are its
     Java poses, `is_sonic_boom` the 60 ticks of Java's attack from its animation's start; `heartbeat_phase` and
@@ -287,6 +297,11 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   * `filter_lighting` (the pack's splash and lingering potion controllers; vanilla's sprite entities: arrows, item
     sprites, bottles, rockets) is read by no code: what it changes in Bedrock's lighting is not published, so the
     potions are lit as other entities are.
+  * Masked multitexture: a render controller's second texture is drawn only by materials with `MASKED_MULTITEXTURE`
+    (vanilla's `villager_v2_masked`), as Bedrock's legacy entity shader does before its alpha test:
+    `mix(second, first, clamp(ceil((r+g+b of second) * (1 - alpha of second)), 0, 1))`, so the second texture
+    replaces the first except where it is coloured but not opaque (sourced: Mojang's shader comment). A masked
+    material without a second texture masks the first by itself.
   * Glint: a material with `GLINT` (vanilla's `entity_alphatest_glint` and its kin) adds Java's enchantment glint as
     vanilla's `core/entity` does, Java's glint texture and texturing (`ENTITY_GLINT_TEXTURING`) standing in for the
     `enchanted` texture (`textures/misc/enchanted_item_glint`) and its scrolling, which Bedrock's compiled shaders do

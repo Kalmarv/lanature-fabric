@@ -79,7 +79,7 @@ public final class Main {
 		runtime.run();
 		RuntimeExporter.vanillaEntityMaterials(refs.resolve("bridge-vanilla/static/vanilla/RP/materials/entity.material"), assets, report);
 		BlockNames.run(geyser, runtime.blockNames(), BlockNames.vanillaBlocks(samples.get("metadata/vanilladata_modules/mojang-blocks.json")), assets, report);
-		EntityScales.run(pack, samples.sub("behavior_pack/entities"), assets, report);
+		EntityBehaviour.run(pack, samples.sub("behavior_pack/entities"), assets, report);
 		Path assetIndex = Path.of(require(opts, "--asset-index"));
 		new SoundConverter(pack, json(refs.resolve("geyser-mappings/sounds.json")),
 			json(refs.resolve("pack-converter/converter/src/main/resources/mappings/sounds.json")),

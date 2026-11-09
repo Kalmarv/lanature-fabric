@@ -4,11 +4,13 @@ import com.google.gson.JsonObject;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.GpuFormat;
 import com.mojang.renderpearl.api.pipeline.BlendFactor;
+import com.mojang.renderpearl.api.pipeline.BindGroupLayout;
 import com.mojang.renderpearl.api.pipeline.BlendFunction;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.renderpearl.api.pipeline.DepthStencilState;
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
+import com.mojang.renderpearl.api.pipeline.UniformType;
 import com.mojang.renderpearl.api.textures.AddressMode;
 import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.renderpearl.api.textures.GpuSampler;
@@ -50,16 +52,21 @@ import xyz.ivyhq.lanature.client.bedrock.MaterialFile;
  * {@code uv_anim} (applied to the vertices; Bedrock's vertex shader does the same per vertex). A material with
  * {@code GLINT} draws Bedrock's enchantment glint, its second texture scrolled over the first, as Java's entity glint
  * (Java's item glint texture and texturing, added in the same shader as Java's {@code entity_solid_glint}; the pack keeps
- * vanilla's glint texture, so Java's stands for it, inferred). Other multi-texture materials draw their first texture
- * only. The main texture's sampler states ({@code Bilinear} filtering, {@code Clamp} wrapping: the pack's glows and
+ * vanilla's glint texture, so Java's stands for it, inferred). A {@code MASKED_MULTITEXTURE} material (the villager's
+ * profession over its biome clothes) draws its second texture over its first, keeping the first only where the second
+ * is coloured but not opaque, before the alpha test (Bedrock's legacy entity shader). Other multi-texture materials
+ * draw their first texture only. The main texture's sampler states ({@code Bilinear} filtering, {@code Clamp} wrapping: the pack's glows and
  * halos) are the render type's sampler for it; without them the texture keeps its own (nearest, repeating).
  */
 public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, boolean depthWrite, CompareOp depthTest, boolean alphaWrite, boolean cull,
-	boolean alphaTest, boolean emissive, boolean overlay, boolean colorMask, boolean uvAnim, boolean glint, boolean linear, boolean clamp) {
+	boolean alphaTest, boolean emissive, boolean overlay, boolean colorMask, boolean uvAnim, boolean glint, boolean masked, boolean linear,
+	boolean clamp) {
 	private static final Logger LOGGER = LoggerFactory.getLogger("lanature/entities");
 	private static final Identifier SHADER = Identifier.fromNamespaceAndPath("lanature", "core/bedrock_entity");
 	public static final EntityMaterial DEFAULT = new EntityMaterial(null, false, true, CompareOp.GREATER_THAN_OR_EQUAL, true, false, true, false, false, false, false, false,
-		false, false);
+		false, false, false);
+	/** The second texture's sampler, for {@code MASKED_MULTITEXTURE}. */
+	private static final BindGroupLayout MASK_SAMPLER = BindGroupLayout.builder().withUniform("MaskSampler", UniformType.COMBINED_IMAGE_SAMPLER).build();
 	/** Pipelines by {@link #key()}: materials differing only in their sampler share them. */
 	private static final Map<String, Pipelines> PIPELINES = new ConcurrentHashMap<>();
 	private static final Map<Key, RenderType> TYPES = new ConcurrentHashMap<>();
@@ -67,12 +74,16 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 	private record Pipelines(RenderPipeline main, @Nullable OitPipelineSet oit) {
 	}
 
-	private record Key(EntityMaterial material, Identifier texture) {
+	private record Key(EntityMaterial material, Identifier texture, @Nullable Identifier texture1) {
 	}
 
-	/** The render type drawing this material with a texture. */
-	public RenderType renderType(Identifier texture) {
-		return TYPES.computeIfAbsent(new Key(this, texture), k -> {
+	/**
+	 * The render type drawing this material with a texture, and for a {@code MASKED_MULTITEXTURE} one a second texture
+	 * (without one, the first stands for it, so the second's mask keeps the first everywhere it is coloured).
+	 */
+	public RenderType renderType(Identifier texture, @Nullable Identifier texture1) {
+		Identifier second = masked ? (texture1 == null ? texture : texture1) : null;
+		return TYPES.computeIfAbsent(new Key(this, texture, second), k -> {
 			Pipelines p = PIPELINES.computeIfAbsent(key(), x -> createPipelines());
 			// the texture's own sampler unless the material sets one (Bedrock's samplerStates for the main texture)
 			Supplier<GpuSampler> sampler = !linear && !clamp ? null : () -> {
@@ -86,6 +97,9 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 			}
 			if (glint) {
 				setup.withTexture("GlintSampler", ItemFeatureRenderer.ENCHANTED_GLINT_ITEM).setTextureTransform(TextureTransform.ENTITY_GLINT_TEXTURING);
+			}
+			if (second != null) {
+				setup.withTexture("MaskSampler", second, sampler);
 			}
 			if (p.oit() != null) {
 				setup.setOitPipelines(p.oit()).sortOnUpload();
@@ -107,6 +121,9 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		if (!overlay) {
 			main.withBindGroupLayout(BindGroupLayouts.SAMPLER1);
 		}
+		if (masked) {
+			main.withBindGroupLayout(MASK_SAMPLER);
+		}
 		shader(main);
 		if (blend != null) {
 			// as vanilla's translucent entities (its OIT snippet sets the same): faint texels write nothing
@@ -126,6 +143,9 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		set.withAccumulateModifier(a -> {
 			if (!overlay) {
 				a.withBindGroupLayout(BindGroupLayouts.SAMPLER1);
+			}
+			if (masked) {
+				a.withBindGroupLayout(MASK_SAMPLER);
 			}
 			a.withBindGroupLayout(BindGroupLayouts.SAMPLER2);
 		});
@@ -148,6 +168,9 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		}
 		if (colorMask) {
 			b.withShaderDefine("BEDROCK_COLOR_MASK");
+		}
+		if (masked) {
+			b.withShaderDefine("BEDROCK_MASKED_MULTITEXTURE");
 		}
 	}
 
@@ -192,7 +215,7 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		k.append(blend == null ? "opaque" : (blend.color().sourceFactor() + "-" + blend.color().destFactor()));
 		k.append(depthWrite ? "_w" : "_nw").append('_').append(depthTest.name()).append(alphaWrite ? "" : "_naw");
 		k.append(cull ? "_c" : "_nc").append(alphaTest ? "_at" : "").append(emissive ? "_e" : "").append(overlay ? "_o" : "")
-			.append(colorMask ? "_cm" : "").append(uvAnim ? "_uv" : "").append(glint ? "_g" : "");
+			.append(colorMask ? "_cm" : "").append(uvAnim ? "_uv" : "").append(glint ? "_g" : "").append(masked ? "_mm" : "");
 		return k.toString().toLowerCase(Locale.ROOT);
 	}
 
@@ -215,7 +238,7 @@ public record EntityMaterial(@Nullable BlendFunction blend, boolean additive, bo
 		return new EntityMaterial(blend, additive, !s.state("DisableDepthWrite"), s.depthTest(), !s.state("DisableAlphaWrite"), !s.state("DisableCulling"),
 			s.define("ALPHA_TEST"),
 			s.define("USE_EMISSIVE"), s.define("USE_OVERLAY"), s.define("USE_COLOR_MASK"), s.define("USE_UV_ANIM"), s.define("GLINT"),
-			s.sampler(0).linear(), s.sampler(0).clamp());
+			s.define("MASKED_MULTITEXTURE"), s.sampler(0).linear(), s.sampler(0).clamp());
 	}
 
 	/** A material by name, or the default cut-out one (with a warning) when no file defines it. */

@@ -13,7 +13,7 @@ A Fabric client mod that runs the Bedrock resource pack [La Nature by Carrot](ht
 - Runs the pack's Bedrock particle effects, with their emitters, curves, events, collisions, block tests and materials
 - Starts the pack's effects in place of Java's particles for block breaking, crits, totems, potion splashes, mace smashes and status effects
 - Runs client entity scripts, animation controllers and animations, with particle effects attached to model locators
-- Draws the mobs and objects the pack remodels with their Bedrock geometry, render controllers and entity materials
+- Draws the mobs and objects the pack remodels with their Bedrock geometry, render controllers and entity materials, including villagers with their biome, profession and level layers and the pack's named villagers drawn as players
 - Draws held-item attachables in first and third person and poses the Java player model from the pack's player animations
 - Applies the pack's per-biome fog, sky, water, grass and foliage colours, water transparency and underwater fog timing
 - Shows the pack's settings in an in-game screen and saves them to `config/lanature.json`

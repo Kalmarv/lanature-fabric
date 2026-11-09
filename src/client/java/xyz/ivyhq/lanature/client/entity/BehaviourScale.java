@@ -10,7 +10,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * The size Bedrock gives an entity in its behaviour pack's {@code minecraft:scale} (see the converter's
- * {@code EntityScales}): {@code scale} from its components, {@code baby} from its baby groups, and the other groups'
+ * {@code EntityBehaviour}): {@code scale} from its components, {@code baby} from its baby groups, and the other groups'
  * scales by name. Bedrock's component groups are server state; here the group an entity is in is chosen by what Java
  * tracks of the same thing: being a baby, and the salmon's size.
  */

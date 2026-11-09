@@ -30,6 +30,7 @@ import net.minecraft.world.level.block.state.properties.Property;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import xyz.ivyhq.lanature.client.entity.BehaviourVariants;
 import xyz.ivyhq.lanature.client.entity.EntityDefinitions;
 import xyz.ivyhq.lanature.client.entity.EntityScripts;
 import xyz.ivyhq.lanature.client.environment.BiomeLooks;
@@ -63,7 +64,7 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 	/** Everything read off-thread, applied on the client thread. */
 	public record Loaded(JsonObject manifest, ParticleLoader.Result particles, EntityDefinitions entities, Map<String, BiomeInfo> biomes,
 		Map<String, ItemInfo> items, BiomeLooks.Table looks, Colormaps.Loaded colormaps, @Nullable LeashColours leash,
-		Map<Block, SoundType> blockSounds) {
+		Map<Block, SoundType> blockSounds, Map<String, Map<String, Map<String, Integer>>> variants) {
 	}
 
 	/** Java biome id → its Bedrock biome and tags. */
@@ -96,8 +97,8 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 		renderControllers.addAll(vanilla.renderControllers());
 		vanilla = new EntityDefinitions.Files(vanilla.entities(), vanilla.attachables(), vanilla.controllers(), vanilla.animations(), vanilla.models(),
 			renderControllers);
-		EntityDefinitions entities = EntityDefinitions.load(vanilla, entityFiles(rm, ROOT + "/"), entityMaterials,
-			json(rm, ROOT + "/entity_scales.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()));
+		JsonObject behaviour = json(rm, ROOT + "/entity_behaviour.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject());
+		EntityDefinitions entities = EntityDefinitions.load(vanilla, entityFiles(rm, ROOT + "/"), entityMaterials, behaviour);
 		// the engine's own particle materials, then the pack's materials over them
 		Map<String, Material> materials = Material.table(
 			json(rm, ROOT + "/engine/particles.material.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
@@ -132,7 +133,8 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 				files(rm, ROOT + "/vanilla/biomes")));
 		LeashColours leash = LeashColours.parse(json(rm, ROOT + "/lead_rope.json").map(JsonElement::getAsJsonObject).orElse(null));
 		Map<Block, SoundType> blockSounds = BlockSounds.resolve(json(rm, ROOT + "/block_sounds.json").map(JsonElement::getAsJsonObject).orElse(null));
-		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), Map.copyOf(itemMap), looks, colormaps, leash, blockSounds);
+		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), Map.copyOf(itemMap), looks, colormaps, leash, blockSounds,
+			BehaviourVariants.parse(behaviour));
 	}
 
 	@Override
@@ -142,6 +144,7 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 		items = loaded.items();
 		LeashColours.set(loaded.leash());
 		BlockSounds.set(loaded.blockSounds());
+		BehaviourVariants.set(loaded.variants());
 		loaded.particles().apply();
 		EntityScripts.get().load(loaded.entities());
 		ClientLevel level = Minecraft.getInstance().level;
