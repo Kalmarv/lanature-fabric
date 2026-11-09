@@ -28,11 +28,9 @@ A Fabric client mod that runs the Bedrock resource pack [La Nature by Carrot](ht
 - Your own copy of the La Nature `.mcpack`
 - [Mod Menu](https://modrinth.com/mod/modmenu) (optional), for a settings button in the mod list
 
-The pack is All Rights Reserved by its author. A jar built from this repository contains the pack's assets and is for personal use only; do not redistribute it.
-
 ### Installation
 
-The mod is not published to Modrinth or CurseForge. Build it from source:
+Download the latest jar from [Releases](https://github.com/Kalmarv/lanature-fabric/releases), or build it from source:
 
 ```sh
 git clone https://github.com/Kalmarv/lanature-fabric.git
@@ -60,4 +58,8 @@ LANATURE_GAMETEST=entities xvfb-run -a ./gradlew runClientGameTest
 
 `LANATURE_GAMETEST` selects one scene instead of the default: `entities`, `attachables`, `items`, `colormaps`, `environment`, `pictures`, `events`, `poses` or `modmenu`.
 
-[DESIGN.md](DESIGN.md) describes how the converter and runtime work, including which Bedrock engine values are inferred. The repository has no licence file; the mod's metadata declares it for personal use only.
+[DESIGN.md](DESIGN.md) describes how the converter and runtime work, including which Bedrock engine values are inferred.
+
+## Credits
+
+La Nature is made by Carrot; all credit for the pack goes to them.

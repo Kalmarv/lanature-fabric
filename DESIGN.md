@@ -12,9 +12,7 @@ animation controllers choose ambient effects, and Molang drives everything. So t
    Molang, the particle system, client entity scripts with animation controllers, pack settings, fogs, and the
    bridges from Java's own events (particle spawns, block ticks, sounds) to the Bedrock effects the pack overrides.
 
-The repository holds no assets from the pack. The pack's licence (All Rights Reserved) forbids
-redistributing it, so the build reads the user's own downloaded `.mcpack` (`-Planature.pack=...`). The jar it
-produces is for personal use only.
+The repository holds no assets from the pack: the build reads a downloaded `.mcpack` (`-Planature.pack=...`).
 
 ## Inputs
 
