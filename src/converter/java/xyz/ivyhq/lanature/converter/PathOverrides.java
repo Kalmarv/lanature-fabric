@@ -1,22 +1,29 @@
 package xyz.ivyhq.lanature.converter;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 /**
  * Pack textures that replace a vanilla Bedrock texture at the same path, written over the Java texture that is the
- * same picture. Entity textures are left to the entity port, since the pack draws most of them on its own geometry,
- * particle sheets to the particle runtime, potion pictures to {@link PotionModels} (Java has no texture per potion),
+ * same picture. Entity textures one of the pack's client entities or attachables names are left to the entity port, which
+ * draws them on the pack's geometry; the rest (the enchanting table book, the end portal) are drawn by Java's own
+ * renderers on Java's layout, which is Bedrock's wherever the identity finds the same picture; beds, which Java cuts
+ * into block textures, go to {@link BedSheets}, and the lead rope, which Java draws untextured, to {@link LeadRope}.
+ * Particle sheets are
+ * left to the particle runtime, potion pictures to {@link PotionModels} (Java has no texture per potion),
  * colour maps Java has no picture for to {@link Colormaps}, the end portal colours (constants of Java's shader) to
  * {@link EndPortalColors}, and the weather sprites (Java has whole sheets) to {@link WeatherSheets}.
  */
 public final class PathOverrides {
 	private static final List<String> FOLDERS = List.of("textures/items/", "textures/blocks/", "textures/environment/",
-		"textures/colormap/", "textures/misc/", "textures/ui/");
+		"textures/colormap/", "textures/misc/", "textures/ui/", "textures/entity/");
 	/** Bedrock's moon sheet is 4×2 phases; Java has one file per phase, in the same order. */
 	/**
 	 * Pictures of states Bedrock draws and Java has none of: the food bar's flashes as the bar drops (plain and under
@@ -43,6 +50,7 @@ public final class PathOverrides {
 	}
 
 	public void run() throws IOException {
+		Set<String> entityPort = entityPortTextures();
 		int written = 0;
 		for (String folder : FOLDERS) {
 			for (String path : pack.packPaths(folder)) {
@@ -52,7 +60,7 @@ public final class PathOverrides {
 				}
 				String ref = path.substring(0, path.length() - ext.length());
 				if (PotionModels.PREFIX.stream().anyMatch(ref::startsWith) || Colormaps.handles(identity, ref) || ref.equals(EndPortalColors.REF)
-					|| ref.equals(WeatherSheets.REF)) {
+					|| ref.equals(WeatherSheets.REF) || ref.equals(LeadRope.REF) || entityPort.contains(ref)) {
 					continue;
 				}
 				BedrockPack.Resolved winner = pack.texture(ref);
@@ -86,6 +94,25 @@ public final class PathOverrides {
 			}
 		}
 		report.info("overrides", written + " vanilla textures replaced");
+	}
+
+	/** The textures the pack's own client entities and attachables name: the entity port draws them. */
+	private Set<String> entityPortTextures() {
+		Set<String> out = new HashSet<>();
+		for (String folder : List.of("entity/", "attachables/")) {
+			for (String path : pack.packPaths(folder)) {
+				if (!path.endsWith(".json")) {
+					continue;
+				}
+				for (JsonElement root : pack.packJson(path).getAsJsonObject().asMap().values()) {
+					if (root.isJsonObject() && root.getAsJsonObject().get("description") instanceof JsonObject desc
+						&& desc.get("textures") instanceof JsonObject textures) {
+						textures.asMap().values().forEach(t -> out.add(t.getAsString()));
+					}
+				}
+			}
+		}
+		return out;
 	}
 
 	private int moon(BufferedImage sheet) throws IOException {

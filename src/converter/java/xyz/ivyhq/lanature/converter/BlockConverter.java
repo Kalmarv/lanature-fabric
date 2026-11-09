@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -118,22 +119,22 @@ public final class BlockConverter {
 		JsonObject out = blockstate.deepCopy();
 		boolean changed = false;
 		if (out.has("variants")) {
+			JsonObject variants = new JsonObject();
 			for (Map.Entry<String, JsonElement> v : out.getAsJsonObject("variants").entrySet()) {
-				JavaState s = states.stream().filter(st -> st.matchesVariant(v.getKey())).findFirst().orElse(null);
-				if (s == null || !bedrock.affected(targets.get(s).effective())) {
-					continue;
+				Map<String, JsonArray> split = convertVariant(block, v.getKey(), v.getValue(), states, targets);
+				for (Map.Entry<String, JsonArray> e : split.entrySet()) {
+					changed |= !e.getValue().equals(asArray(v.getValue()));
+					variants.add(e.getKey(), e.getValue().size() == 1 ? e.getValue().get(0) : e.getValue());
 				}
-				JsonArray converted = convertRefs(block, v.getValue(), s, targets.get(s));
-				changed |= !converted.equals(asArray(v.getValue()));
-				v.setValue(converted.size() == 1 ? converted.get(0) : converted);
 			}
+			out.add("variants", variants);
 		} else if (out.has("multipart")) {
 			JavaState s = geyser.defaultState(block);
 			Target t = targets.get(s);
 			if (bedrock.affected(t.effective())) {
 				for (JsonElement part : out.getAsJsonArray("multipart")) {
 					JsonObject p = part.getAsJsonObject();
-					JsonArray converted = convertRefs(block, p.get("apply"), s, t);
+					JsonArray converted = convertRefs(block, p.get("apply"), s, t, true);
 					changed |= !converted.equals(asArray(p.get("apply")));
 					p.add("apply", converted.size() == 1 ? converted.get(0) : converted);
 				}
@@ -271,10 +272,82 @@ public final class BlockConverter {
 		return a;
 	}
 
-	private JsonArray convertRefs(String block, JsonElement refs, JavaState s, Target t) throws IOException {
+	/**
+	 * One {@code variants} entry → its converted entries by key. Java's key names only the properties its own models
+	 * depend on, but Bedrock's look can depend on others (a hopper's tiles are indexed by its powered bit, which Java's
+	 * hopper art ignores), so every Java state the key covers is drawn. When they all draw alike the key stays; else
+	 * it is split by the fewest further properties that separate the looks.
+	 */
+	private Map<String, JsonArray> convertVariant(String block, String key, JsonElement refs, List<JavaState> states,
+		Map<JavaState, Target> targets) throws IOException {
+		List<JavaState> covered = states.stream().filter(st -> st.matchesVariant(key)).toList();
+		Map<JavaState, JsonArray> drawn = new LinkedHashMap<>();
+		for (JavaState s : covered) {
+			Target t = targets.get(s);
+			drawn.put(s, bedrock.affected(t.effective()) ? convertRefs(block, refs, s, t, false) : asArray(refs));
+		}
+		if (new LinkedHashSet<>(drawn.values()).size() <= 1) {
+			JavaState s = covered.isEmpty() ? null : covered.getFirst();
+			return Map.of(key, s == null || !bedrock.affected(targets.get(s).effective()) ? asArray(refs) : convertRefs(block, refs, s, targets.get(s), true));
+		}
+		Set<String> named = new LinkedHashSet<>();
+		if (!key.isEmpty()) {
+			for (String part : key.split(",")) {
+				named.add(part.substring(0, part.indexOf('=')));
+			}
+		}
+		List<String> free = covered.getFirst().properties().keySet().stream().filter(p -> !named.contains(p)).toList();
+		List<String> by = separating(free, drawn);
+		Map<String, JsonArray> out = new LinkedHashMap<>();
+		for (JavaState s : covered) {
+			StringBuilder k = new StringBuilder(key);
+			for (String p : by) {
+				k.append(k.isEmpty() ? "" : ",").append(p).append('=').append(s.properties().get(p));
+			}
+			if (!out.containsKey(k.toString())) {
+				Target t = targets.get(s);
+				out.put(k.toString(), bedrock.affected(t.effective()) ? convertRefs(block, refs, s, t, true) : asArray(refs));
+			}
+		}
+		return out;
+	}
+
+	/** The smallest set of properties (fewest first, then in order) whose values decide each state's look. */
+	private static List<String> separating(List<String> free, Map<JavaState, JsonArray> drawn) {
+		List<List<String>> subsets = new ArrayList<>();
+		for (int mask = 1; mask < 1 << free.size(); mask++) {
+			List<String> sub = new ArrayList<>();
+			for (int i = 0; i < free.size(); i++) {
+				if ((mask & 1 << i) != 0) {
+					sub.add(free.get(i));
+				}
+			}
+			subsets.add(sub);
+		}
+		subsets.sort(Comparator.comparingInt(List::size));
+		for (List<String> sub : subsets) {
+			Map<List<String>, JsonArray> look = new HashMap<>();
+			boolean decides = true;
+			for (Map.Entry<JavaState, JsonArray> e : drawn.entrySet()) {
+				List<String> values = sub.stream().map(e.getKey().properties()::get).toList();
+				JsonArray prior = look.putIfAbsent(values, e.getValue());
+				if (prior != null && !prior.equals(e.getValue())) {
+					decides = false;
+					break;
+				}
+			}
+			if (decides) {
+				return sub;
+			}
+		}
+		return free;
+	}
+
+	/** {@code counted}: faces left vanilla go in the report (once per blockstate entry, not per state drawn to compare). */
+	private JsonArray convertRefs(String block, JsonElement refs, JavaState s, Target t, boolean counted) throws IOException {
 		JsonArray out = new JsonArray();
 		for (JsonElement r : asArray(refs)) {
-			out.addAll(convertRef(block, r.getAsJsonObject(), s, t, true));
+			out.addAll(convertRef(block, r.getAsJsonObject(), s, t, counted));
 		}
 		return out;
 	}
@@ -324,7 +397,10 @@ public final class BlockConverter {
 				String var = f.getValue().getAsJsonObject().get("texture").getAsString();
 				String javaTex = geometry.resolve(var);
 				String slot = matchSlot(reference, referenceIndex, javaTex, f.getKey());
-				if (slot != null && BedrockBlocks.slotTile(eff.entry(), slot) == null) {
+				if (slot == null && geometry == m) {
+					slot = matchOtherPlace(reference, referenceIndex, javaTex, f.getKey());
+				}
+				if (slot != null && BedrockBlocks.slotTile(eff.entry(), slotDir(slot)) == null) {
 					slot = null;
 				}
 				if (slot == null && geometry != m) {
@@ -343,7 +419,7 @@ public final class BlockConverter {
 		for (Map.Entry<String, Map<String, String>> e : slotsByVar.entrySet()) {
 			String javaTex = geometry.resolve(e.getKey());
 			for (String slot : e.getValue().values()) {
-				String tile = slot == null ? null : OWN.equals(slot) ? OWN : BedrockBlocks.slotTile(eff.entry(), slot);
+				String tile = tileKey(eff.entry(), slot);
 				if (tile == null || options.containsKey(tile)) {
 					continue;
 				}
@@ -354,7 +430,9 @@ public final class BlockConverter {
 					}
 					continue;
 				}
-				List<TexOption> opts = bedrock.tileOptions(tile, index, true);
+				int at = tile.indexOf('@');
+				List<TexOption> opts = at < 0 ? bedrock.tileOptions(tile, index, true)
+					: bedrock.tileOptions(tile.substring(0, at), Integer.parseInt(tile.substring(at + 1)), true);
 				if (opts == null || opts.isEmpty()) {
 					continue;
 				}
@@ -370,7 +448,7 @@ public final class BlockConverter {
 		Map<String, Map<String, String>> tilesByVar = new LinkedHashMap<>();
 		slotsByVar.forEach((var, byDir) -> {
 			Map<String, String> byTile = new LinkedHashMap<>();
-			byDir.forEach((dir, slot) -> byTile.put(dir, slot == null ? null : OWN.equals(slot) ? OWN : BedrockBlocks.slotTile(eff.entry(), slot)));
+			byDir.forEach((dir, slot) -> byTile.put(dir, tileKey(eff.entry(), slot)));
 			tilesByVar.put(var, byTile);
 		});
 		boolean split = tilesByVar.values().stream().anyMatch(v -> new LinkedHashSet<>(v.values()).size() > 1);
@@ -584,6 +662,46 @@ public final class BlockConverter {
 	}
 
 	/** The face slot of a vanilla Bedrock entry that shows this Java texture, preferring the face's own direction. */
+	/**
+	 * A face Bedrock draws from another place of a slot's tile list than the state's index: a list whose places are
+	 * parts of one block, not data values (the sunflower's front and back; the eyeblossom's and firefly bush's plant
+	 * and glowing layer). Returns {@code dir@place}, or null. Only consulted when no slot shows the face at the index.
+	 */
+	private String matchOtherPlace(JsonObject entry, int index, String javaTex, String dir) {
+		if (entry == null || javaTex == null) {
+			return null;
+		}
+		List<String> dirs = new ArrayList<>(BedrockBlocks.DIRECTIONS);
+		dirs.remove(dir);
+		dirs.addFirst(dir);
+		for (String d : dirs) {
+			String tile = BedrockBlocks.slotTile(entry, d);
+			int n = tile == null ? 0 : bedrock.listSize(tile, false);
+			for (int i = 0; i < n; i++) {
+				if (i != index && bedrock.tileOptions(tile, i, false).stream().anyMatch(o -> identity.same(javaTex, o.ref()))) {
+					return d + "@" + i;
+				}
+			}
+		}
+		return null;
+	}
+
+	/** A slot's face direction, without the {@code @place} of {@link #matchOtherPlace}. */
+	private static String slotDir(String slot) {
+		int at = slot.indexOf('@');
+		return at < 0 ? slot : slot.substring(0, at);
+	}
+
+	/** The key a face's textures go by: its slot's tile, with the slot's {@code @place} when it names one. */
+	private static String tileKey(JsonObject entry, String slot) {
+		if (slot == null || OWN.equals(slot)) {
+			return slot;
+		}
+		String tile = BedrockBlocks.slotTile(entry, slotDir(slot));
+		int at = slot.indexOf('@');
+		return tile == null || at < 0 ? tile : tile + slot.substring(at);
+	}
+
 	private String matchSlot(JsonObject entry, int index, String javaTex, String dir) {
 		if (entry == null || javaTex == null) {
 			return null;
@@ -626,11 +744,13 @@ public final class BlockConverter {
 					used.add(r);
 				}
 			});
-			// The index whose textures match the most of the model's (open and closed barrel tops share one list).
+			// The index showing the most of the model's textures (open and closed barrel tops share one list). Each
+			// texture counts once: a whole cake's west tile shows the side texture its other sides show too, which
+			// must not outweigh the bitten cake's inner texture.
 			int best = 0;
 			int bestScore = 0;
 			for (int i = 0; i < 64; i++) {
-				int score = 0;
+				Set<String> shown = new LinkedHashSet<>();
 				boolean any = false;
 				for (String tile : BedrockBlocks.tiles(eff.vanilla())) {
 					int n = bedrock.listSize(tile, false);
@@ -641,7 +761,7 @@ public final class BlockConverter {
 					for (TexOption o : bedrock.tileOptions(tile, i, false)) {
 						for (String u : used) {
 							if (identity.same(u, o.ref())) {
-								score++;
+								shown.add(u);
 							}
 						}
 					}
@@ -649,6 +769,7 @@ public final class BlockConverter {
 				if (!any) {
 					break;
 				}
+				int score = shown.size();
 				if (score > bestScore) {
 					best = i;
 					bestScore = score;

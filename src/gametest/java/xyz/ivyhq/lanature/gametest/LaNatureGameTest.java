@@ -52,7 +52,8 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			// icons, =colormaps only the colour-mapped leaves, =environment only the end portal and weather, =pictures only
 			// the block and item break effects, =events only the crit, totem, splash and smash effects, =poses only the
 			// player's poses that Java's renderer also turns (crawling, swimming, riding, gliding, sleeping) and its item
-			// uses, =modmenu only the mod list
+			// uses, =modmenu only the mod list, =blocks only the blocks whose look depends on state, flipbooks or Bedrock
+			// entity sheets (hoppers, redstone, cake, two-part plants, beds, the enchanting table, a leash)
 			if ("entities".equals(System.getenv("LANATURE_GAMETEST"))) {
 				entities(context, server, world);
 				return;
@@ -83,6 +84,10 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			}
 			if ("poses".equals(System.getenv("LANATURE_GAMETEST"))) {
 				poses(context, server, world);
+				return;
+			}
+			if ("blocks".equals(System.getenv("LANATURE_GAMETEST"))) {
+				blocks(context, server, world);
 				return;
 			}
 			if ("modmenu".equals(System.getenv("LANATURE_GAMETEST"))) {
@@ -745,6 +750,77 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 		context.waitTicks(5);
 		context.takeScreenshot("lanature-colormaps-items");
 		context.setScreen(() -> null);
+	}
+
+	/**
+	 * Blocks whose pack look the converter derives from more than one tile entry: a working and a powered hopper (the
+	 * pack marks power on its rim), a lit and an unlit redstone torch, a powered and an unpowered repeater and
+	 * comparator (the pack's flipbooks animate the lit parts), a bitten cake, a sunflower, an open eyeblossom and a
+	 * firefly bush (second tile places: the flower's back, the glowing layers), glow lichen, red and white beds (faces cut
+	 * from the pack's bed sheets), an enchanting table (its book) and a leashed pig (the pack's rope colours).
+	 */
+	private static void blocks(ClientGameTestContext context, TestServerContext server, TestSingleplayerContext world) {
+		server.runCommand("gamerule fall_damage false");
+		server.runCommand("tp @p 220.5 104 10.5 180 20");
+		context.waitTicks(40);
+		world.getConnection().waitForChunksRender();
+		server.runCommand("fill 200 98 -8 240 98 16 minecraft:grass_block");
+		server.runCommand("fill 200 99 -8 240 112 16 minecraft:air");
+		// hoppers: working, then powered by a redstone block behind it
+		server.runCommand("setblock 210 99 0 minecraft:hopper[facing=down]");
+		server.runCommand("setblock 212 99 0 minecraft:hopper[facing=down]");
+		server.runCommand("setblock 212 99 -1 minecraft:redstone_block");
+		// a lit torch, and an unlit one on a powered block
+		server.runCommand("setblock 214 99 0 minecraft:redstone_torch");
+		server.runCommand("setblock 215 99 -1 minecraft:redstone_block");
+		server.runCommand("setblock 215 99 0 minecraft:redstone_wall_torch[facing=south]");
+		// repeaters and comparators facing the camera (south), unpowered then fed by a redstone block behind
+		server.runCommand("setblock 217 99 0 minecraft:repeater[facing=north]");
+		server.runCommand("setblock 219 99 0 minecraft:repeater[facing=north]");
+		server.runCommand("setblock 219 99 -1 minecraft:redstone_block");
+		server.runCommand("setblock 221 99 0 minecraft:comparator[facing=north]");
+		server.runCommand("setblock 223 99 0 minecraft:comparator[facing=north]");
+		server.runCommand("setblock 223 99 -1 minecraft:redstone_block");
+		server.runCommand("setblock 225 99 0 minecraft:cake[bites=3]");
+		server.runCommand("setblock 227 99 0 minecraft:sunflower[half=lower]");
+		server.runCommand("setblock 227 100 0 minecraft:sunflower[half=upper]");
+		server.runCommand("setblock 229 99 0 minecraft:open_eyeblossom");
+		server.runCommand("setblock 231 99 0 minecraft:firefly_bush");
+		server.runCommand("setblock 233 99 -1 minecraft:stone");
+		server.runCommand("setblock 233 99 0 minecraft:glow_lichen[north=true]");
+		// beds lengthwise to the camera, and the enchanting table's book
+		server.runCommand("setblock 210 99 4 minecraft:red_bed[facing=east,part=foot]");
+		server.runCommand("setblock 211 99 4 minecraft:red_bed[facing=east,part=head]");
+		server.runCommand("setblock 214 99 4 minecraft:white_bed[facing=west,part=foot]");
+		server.runCommand("setblock 213 99 4 minecraft:white_bed[facing=west,part=head]");
+		server.runCommand("setblock 217 99 4 minecraft:enchanting_table");
+		server.runCommand("setblock 221 99 2 minecraft:oak_fence");
+		server.runCommand("summon minecraft:pig 224.5 99 5.5 {NoAI:1b,Invulnerable:1b,leash:[I;221,99,2]}");
+		server.runCommand("time set 6000");
+		server.runCommand("tp @p 221.5 101.5 7.5 180 25");
+		world.getConnection().waitForChunksRender();
+		context.waitTicks(60);
+		String states = context.computeOnClient(mc -> {
+			StringBuilder sb = new StringBuilder();
+			for (int[] p : new int[][] {{210, 0}, {212, 0}, {214, 0}, {215, 0}, {217, 0}, {219, 0}, {221, 0}, {223, 0}, {225, 0}}) {
+				sb.append("\n  ").append(mc.level.getBlockState(new net.minecraft.core.BlockPos(p[0], 99, p[1])));
+			}
+			sb.append("\n  leashed pigs: ").append(mc.level.getEntitiesOfClass(net.minecraft.world.entity.animal.pig.Pig.class,
+				new net.minecraft.world.phys.AABB(200, 90, -10, 240, 110, 20), pig -> pig.isLeashed()).size());
+			return sb.toString();
+		});
+		LOGGER.info("Block states: {}", states);
+		context.takeScreenshot("lanature-blocks-row");
+		for (int[] close : new int[][] {{211, 0}, {218, 0}, {222, 0}, {226, 0}, {230, 0}, {233, 0}, {212, 4}, {217, 4}, {222, 4}}) {
+			server.runCommand("tp @p " + (close[0] + 0.5) + " 100.6 " + (close[1] + 3.2) + " 180 30");
+			world.getConnection().waitForChunksRender();
+			context.waitTicks(20);
+			context.takeScreenshot("lanature-blocks-" + close[0] + "-" + close[1]);
+		}
+		server.runCommand("time set 18000");
+		server.runCommand("tp @p 230.5 100.6 3.2 180 30");
+		context.waitTicks(40);
+		context.takeScreenshot("lanature-blocks-night-plants");
 	}
 
 	/**

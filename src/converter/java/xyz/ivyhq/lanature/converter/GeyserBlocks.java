@@ -13,13 +13,15 @@ import java.util.TreeMap;
 
 /**
  * Java block state → Bedrock block, from GeyserMC's {@code blocks.nbt} (one entry per Java state id; the Bedrock
- * identifier is omitted when it equals the Java block name) and Minecraft's own block report for the state ids.
+ * identifier is omitted when it equals the Java block name) and Minecraft's own block report for the state ids, with
+ * the curated corrections of {@code geyser_state_fixes.json} applied to the Bedrock state values.
  */
 public final class GeyserBlocks {
 	/** Java block name (no namespace) → its states in id order. */
 	private final Map<String, List<JavaState>> statesByBlock = new LinkedHashMap<>();
 
-	public GeyserBlocks(Path blocksNbt, JsonObject blockReport) throws IOException {
+	/** {@code fixes}: Bedrock block → state → Geyser's value → the correct value. */
+	public GeyserBlocks(Path blocksNbt, JsonObject blockReport, JsonObject fixes) throws IOException {
 		List<?> mappings = (List<?>) Nbt.readCompressed(blocksNbt).get("bedrock_mappings");
 		for (Map.Entry<String, JsonElement> e : blockReport.entrySet()) {
 			String block = JavaAssets.strip(e.getKey());
@@ -36,6 +38,9 @@ public final class GeyserBlocks {
 				Map<String, String> bedrockStates = new TreeMap<>();
 				if (m.get("state") instanceof Map<?, ?> st) {
 					st.forEach((k, v) -> bedrockStates.put((String) k, String.valueOf(v)));
+				}
+				if (fixes.get(JavaAssets.strip(bedrockId)) instanceof JsonObject fix) {
+					bedrockStates.replaceAll((k, v) -> fix.get(k) instanceof JsonObject values && values.has(v) ? values.get(v).getAsString() : v);
 				}
 				boolean isDefault = so.has("default") && so.get("default").getAsBoolean();
 				states.add(new JavaState(block, props, isDefault, JavaAssets.strip(bedrockId), bedrockStates));

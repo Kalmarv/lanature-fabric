@@ -51,12 +51,13 @@ public final class Main {
 		TextureIdentity identity = new TextureIdentity(
 			Json.parse(Files.readAllBytes(refs.resolve("pack-converter/converter/src/main/resources/mappings/textures.json"))).getAsJsonObject(),
 			resource("texture_identity.json"), vanilla, java, report);
-		GeyserBlocks geyser = new GeyserBlocks(refs.resolve("geyser-mappings/blocks.nbt"), blockReport);
+		GeyserBlocks geyser = new GeyserBlocks(refs.resolve("geyser-mappings/blocks.nbt"), blockReport, resource("geyser_state_fixes.json"));
+		JsonObject vanillaTiles = Json.parse(vanilla.get("textures/terrain_texture.json")).getAsJsonObject().getAsJsonObject("texture_data");
 		BedrockBlocks bedrockBlocks = new BedrockBlocks(
 			Json.parse(vanilla.get("blocks.json")).getAsJsonObject(),
 			merged(pack, "blocks.json"),
-			Json.parse(vanilla.get("textures/terrain_texture.json")).getAsJsonObject().getAsJsonObject("texture_data"),
-			mergedTiles(pack),
+			vanillaTiles,
+			BedrockBlocks.withFlipbooks(vanillaTiles, mergedTiles(pack), pack.packJson("textures/flipbook_textures.json"), report),
 			report);
 		TextureExporter textures = new TextureExporter(pack, assets, report);
 
@@ -65,6 +66,8 @@ public final class Main {
 
 		Path engine = Path.of(require(opts, "--engine"));
 		new PathOverrides(pack, identity, java, assets, report).run();
+		BedSheets.run(pack, java, assets, report);
+		LeadRope.run(pack, assets, report);
 		PotionModels.run(pack, java, resource("potion_textures.json"), assets, report);
 		EndPortalColors.run(pack, java, assets, report);
 		WeatherSheets.run(pack, java, assets, report);

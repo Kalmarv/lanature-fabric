@@ -1,0 +1,6 @@
+{
+	"_comment": "Bedrock block state values GeyserMC's blocks.nbt gets wrong, by Bedrock block, state and Geyser's value -> Bedrock's. Geyser can carry these unnoticed where vanilla Bedrock draws both values alike; the pack draws them differently. hopper: Geyser maps Java's enabled straight onto toggle_bit (mappings-generator BlockMappers: map(HopperBlock.ENABLED, \"toggle_bit\")), but Bedrock sets toggle_bit when the hopper is powered, that is disabled (Minecraft Wiki, Hopper: block states), as the bell's toggle_bit is its powered state.",
+	"hopper": {
+		"toggle_bit": { "0": "1", "1": "0" }
+	}
+}

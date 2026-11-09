@@ -25,6 +25,7 @@
 		"InventoryScreenMixin",
 		"ItemInHandLayerMixin",
 		"LevelEventHandlerMixin",
+		"LeashFeatureRendererMixin",
 		"LivingEntityAccessor",
 		"LivingEntityMixin",
 		"LivingEntityRendererMixin",

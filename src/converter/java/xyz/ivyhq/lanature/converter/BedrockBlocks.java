@@ -3,6 +3,7 @@ package xyz.ivyhq.lanature.converter;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -71,6 +72,73 @@ public final class BedrockBlocks {
 	}
 
 	/** The first texture of each face at an index, for comparing entries. */
+	/**
+	 * The pack's tiles with its flipbooks applied. A flipbook entry animates one place of an atlas tile
+	 * ({@code atlas_tile}, list index {@code atlas_index}, variation {@code atlas_tile_variant}) and Bedrock draws its
+	 * {@code flipbook_texture} there, so an entry whose texture is not the tile's own replaces it: the pack animates
+	 * the lit redstone torch, repeater and comparator, and glow lichen this way, leaving their tiles vanilla.
+	 */
+	public static JsonObject withFlipbooks(JsonObject vanillaTiles, JsonObject packTiles, JsonElement flipbooks, Report report) {
+		JsonObject out = packTiles.deepCopy();
+		if (flipbooks == null || !flipbooks.isJsonArray()) {
+			return out;
+		}
+		for (JsonElement e : flipbooks.getAsJsonArray()) {
+			JsonObject fb = e.getAsJsonObject();
+			String name = fb.get("atlas_tile").getAsString();
+			String texture = fb.get("flipbook_texture").getAsString();
+			JsonElement base = out.has(name) ? out.get(name) : vanillaTiles.get(name);
+			if (base == null || !base.isJsonObject()) {
+				report.warn("textures", "flipbook " + texture + " names tile " + name + ", which neither the pack nor vanilla defines; unused");
+				continue;
+			}
+			JsonObject tile = base.getAsJsonObject().deepCopy();
+			int index = fb.has("atlas_index") ? fb.get("atlas_index").getAsInt() : 0;
+			int variant = fb.has("atlas_tile_variant") ? fb.get("atlas_tile_variant").getAsInt() : 0;
+			JsonElement list = tile.get("textures");
+			JsonElement place = list.isJsonArray() ? (index < list.getAsJsonArray().size() ? list.getAsJsonArray().get(index) : null) : index == 0 ? list : null;
+			JsonElement replaced = replace(place, variant, texture);
+			if (replaced == null) {
+				report.warn("textures", "flipbook " + texture + " names " + name + "[" + index + "] variation " + variant + ", which the tile lacks; unused");
+				continue;
+			}
+			if (replaced.equals(place)) {
+				continue;
+			}
+			if (list.isJsonArray()) {
+				list.getAsJsonArray().set(index, replaced);
+			} else {
+				tile.add("textures", replaced);
+			}
+			out.add(name, tile);
+			report.info("textures", "flipbook " + texture + " draws tile " + name + "[" + index + "]");
+		}
+		return out;
+	}
+
+	/** One place of a tile's list with a variation's (or its single) texture set to {@code texture}; null if absent. */
+	private static JsonElement replace(JsonElement place, int variant, String texture) {
+		if (place == null) {
+			return null;
+		}
+		if (place.isJsonPrimitive()) {
+			return variant == 0 ? new JsonPrimitive(texture) : null;
+		}
+		JsonObject o = place.getAsJsonObject().deepCopy();
+		if (o.has("variations")) {
+			JsonArray vs = o.getAsJsonArray("variations");
+			if (variant >= vs.size()) {
+				return null;
+			}
+			vs.get(variant).getAsJsonObject().addProperty("path", texture);
+		} else if (o.has("path") && variant == 0) {
+			o.addProperty("path", texture);
+		} else {
+			return null;
+		}
+		return o;
+	}
+
 	private Map<String, String> faceTextures(JsonObject entry, int index, boolean merged) {
 		Map<String, String> out = new HashMap<>();
 		for (String dir : DIRECTIONS) {

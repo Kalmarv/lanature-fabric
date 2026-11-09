@@ -34,13 +34,14 @@ import xyz.ivyhq.lanature.client.entity.EntityScripts;
 import xyz.ivyhq.lanature.client.environment.BiomeLooks;
 import xyz.ivyhq.lanature.client.environment.Colormaps;
 import xyz.ivyhq.lanature.client.model.EntityMaterial;
+import xyz.ivyhq.lanature.client.model.LeashColours;
 import xyz.ivyhq.lanature.client.particle.Material;
 import xyz.ivyhq.lanature.client.particle.ParticleLoader;
 import xyz.ivyhq.lanature.client.settings.PackSettings;
 
 /**
  * Loads the converted Bedrock data from {@code assets/lanature/bedrock/} on every resource reload: the pack's
- * settings, the block-name, biome and item tables, the particle effects, client entities, biome looks (fogs and colours) and colour maps.
+ * settings, the block-name, biome and item tables, the particle effects, client entities, biome looks (fogs and colours), colour maps and leash colours.
  */
 public final class BedrockResources extends SimpleReloadListener<BedrockResources.Loaded> {
 	public static final Identifier ID = Identifier.fromNamespaceAndPath("lanature", "bedrock");
@@ -59,7 +60,7 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 
 	/** Everything read off-thread, applied on the client thread. */
 	public record Loaded(JsonObject manifest, ParticleLoader.Result particles, EntityDefinitions entities, Map<String, BiomeInfo> biomes,
-		Map<String, ItemInfo> items, BiomeLooks.Table looks, Colormaps.Loaded colormaps) {
+		Map<String, ItemInfo> items, BiomeLooks.Table looks, Colormaps.Loaded colormaps, @Nullable LeashColours leash) {
 	}
 
 	/** Java biome id → its Bedrock biome and tags. */
@@ -126,7 +127,8 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 			files(rm, ROOT + "/biomes"), biomeMap, colormaps.biomeMaps(),
 			BiomeLooks.VanillaWater.of(json(rm, ROOT + "/vanilla/biomes_client.json").map(JsonElement::getAsJsonObject).orElse(new JsonObject()),
 				files(rm, ROOT + "/vanilla/biomes")));
-		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), Map.copyOf(itemMap), looks, colormaps);
+		LeashColours leash = LeashColours.parse(json(rm, ROOT + "/lead_rope.json").map(JsonElement::getAsJsonObject).orElse(null));
+		return new Loaded(manifest, particles, entities, Map.copyOf(biomeMap), Map.copyOf(itemMap), looks, colormaps, leash);
 	}
 
 	@Override
@@ -134,6 +136,7 @@ public final class BedrockResources extends SimpleReloadListener<BedrockResource
 		PackSettings.get().define(loaded.manifest());
 		biomes = loaded.biomes();
 		items = loaded.items();
+		LeashColours.set(loaded.leash());
 		loaded.particles().apply();
 		EntityScripts.get().load(loaded.entities());
 		ClientLevel level = Minecraft.getInstance().level;

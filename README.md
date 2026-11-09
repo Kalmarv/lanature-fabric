@@ -8,6 +8,7 @@ A Fabric client mod that runs the Bedrock resource pack [La Nature by Carrot](ht
 - Retextures and reshapes blocks through generated blockstates and models, including weighted random variations
 - Gives block items the pack's inventory pictures and potions the pack's per-effect bottles
 - Converts the pack's sounds, language files, colour maps, end portal colours, rain and snow sprites and flipbook animations
+- Cuts Java's bed faces from the pack's bed sheets, and gives leashes the pack's rope colours
 - Interprets Molang, with variable scopes, structs, loops, `math.*` functions and the queries the pack uses
 - Runs the pack's Bedrock particle effects, with their emitters, curves, events, collisions, block tests and materials
 - Starts the pack's effects in place of Java's particles for block breaking, crits, totems, potion splashes, mace smashes and status effects

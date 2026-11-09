@@ -37,7 +37,10 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
 * **Texture identity.** A Bedrock texture corresponds to a Java texture by PackConverter's name table, then by
   identical name (`textures/blocks/x` → `block/x`), then by identical pixels between the two vanilla packs.
 * **Path overrides.** Where a pack file sits at a vanilla Bedrock texture path (items, entities, environment,
-  colormaps), the converter writes it over the Java equivalent. The food bar's flash and blink pictures
+  colormaps), the converter writes it over the Java equivalent. Entity textures one of the pack's client entities or
+  attachables names are the entity port's (it draws them on the pack's geometry); the others are drawn by Java's own
+  renderers on Java's layout, which is Bedrock's where the identity finds the same picture (the enchanting table's book,
+  the end portal). The food bar's flash and blink pictures
   (`hunger_flash_*`, `hunger_effect_flash_*`, `hunger_blink`) are states Java's food bar does not have (it has six
   sprites and no flash), so they go unused.
 * **Tile overrides.** The pack's `terrain_texture.json` and `blocks.json` change which textures a block uses,
@@ -46,6 +49,17 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   face the Bedrock texture for the same face. It finds that face by texture identity, falling back to the face's
   direction. Variations become weighted blockstate variants. A `blockshape` replaces the Java geometry with the
   equivalent Java template (`fire`, `cross`, `flowering_azalea` and so on).
+  * Every Java state a blockstate key covers is drawn, since Bedrock's look can hang on a property Java's own art
+    ignores: a key whose states draw differently is split by the fewest further properties that separate them (a
+    hopper's `enabled`, which picks between the pack's plain and powered rims).
+  * A list tile's index is the curated legacy data layout (`legacy_data.json`), else the index whose textures show
+    the most distinct textures of the state's Java model (a bitten cake's cut face picks the inner texture).
+  * Some lists hold the parts of one block rather than data values (a sunflower's front and back, the eyeblossom's
+    and firefly bush's plant and glowing layer): a face no slot shows at the state's index takes the place of the
+    slot's list that shows its Java texture.
+  * Geyser state values that are wrong for Bedrock are corrected first (`geyser_state_fixes.json`): Geyser maps a
+    hopper's `enabled` straight onto `toggle_bit`, which Bedrock sets when the hopper is powered (the Minecraft Wiki;
+    the bell's `toggle_bit` is its power, and the pack's powered rims are its glowing ones; not checked in the game).
 * **Block items.** Bedrock draws a block's item with the entry's `carried_textures` where it has them (151 vanilla
   entries; coloured-in pictures for the inventory, the leaves and lily pad green where their block textures are grey),
   else with its block textures. A Java block item whose Bedrock pictures come from the pack gets the same face
@@ -72,7 +86,19 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   `rain.png` and `snow.png` are Java's own, redrawn at 8× with the pack's sprite at each Java streak or flake, at
   Bedrock's lengths (Java's sheet is 64 pixels to the block).
 * **Flipbooks.** `flipbook_textures.json` becomes `.png.mcmeta` animations (`ticks_per_frame` → `frametime`,
-  `blend_frames` → `interpolate`, `frames` → `frames`).
+  `blend_frames` → `interpolate`, `frames` → `frames`). A flipbook draws its texture at its `atlas_tile`
+  (`atlas_index`, `atlas_tile_variant`), so one naming another texture than the tile's replaces it there (inferred:
+  every vanilla flipbook names its tile's own texture, so none tests it): the pack animates the lit redstone torch,
+  the repeater's and comparator's lit tops and torches, and glow lichen this way.
+* **Beds.** Bedrock draws a bed as an entity on a 64×64 sheet per colour; Java's are block models whose faces are cut
+  from the same layout. Each Java face is matched back to the vanilla red sheet piece by piece (connected runs of at
+  least 6 equal pixels under one of a square's 8 orientations and an offset; 97 to 100 % of each face's pixels), and
+  a pack sheet gives each face the pixels at those places (`BedSheets`). The faces every colour shares come from the
+  white sheet, Bedrock's default.
+* **Lead rope.** Java draws a leash untextured, alternating vanilla Bedrock's two rope colours by segment; the pack's
+  rope (`textures/entity/lead_rope`) gives the light segments the mean of its first half and the dark ones of its
+  second (`bedrock/lead_rope.json`, a `LeashFeatureRenderer` mixin; inferred, Bedrock's rope UV scale not being
+  published).
 * **Runtime data.** The particles, client entities, animation controllers, animations, render controllers, geometry,
   attachables, fogs, client biomes, manifest settings and language files go to `assets/lanature/bedrock/`. Textures
   the runtime references go to `assets/lanature/textures/bedrock/<sanitised bedrock path>.png`, which a
