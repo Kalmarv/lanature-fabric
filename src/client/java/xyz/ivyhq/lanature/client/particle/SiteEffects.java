@@ -43,6 +43,13 @@ import xyz.ivyhq.lanature.molang.Variables;
  * engine starts it each tick Java spawns them, with a multiplier of 1, Java's radius (a fifth of a block while the
  * cloud waits) and an active time of that tick. Java's other {@code entity_effect} particles (an evoker's spell, a
  * stunned ravager, a raid bell, the wither) stay Java's.
+ *
+ * <p>A potent sulfur geyser's eruption is Java's {@code geyser} particle, renewed every 20 ticks while it erupts, which
+ * spawns base, plume and poof particles over its 20-tick life. Bedrock starts {@code geyser_base} and
+ * {@code geyser_plume}, emitters that run for {@code v.active_time} and scale with {@code v.plume_height}, and the
+ * {@code geyser_poof} burst. They start with the eruption particle, active for its life, and the poof where Java
+ * bursts its own; the plume height is Java's, five blocks per block of water (the pack's plume sizes particles by
+ * {@code 2 + plume_height / 8}, as Java's plume does by its height; inferred).
  */
 public final class SiteEffects {
 	/** Inferred: the count the pack's effect takes for a broken block. */
@@ -59,6 +66,13 @@ public final class SiteEffects {
 	private static final String STATUS_EFFECT_AMBIENT = "status_effect_ambient";
 	private static final String ARROW_TRAIL = "arrow_trail";
 	private static final String LINGERING_CLOUD = "lingering_cloud";
+	private static final String GEYSER_BASE = "geyser_base";
+	private static final String GEYSER_PLUME = "geyser_plume";
+	private static final String GEYSER_POOF = "geyser_poof";
+	/** Java's plume rises five blocks per block of water over the sulfur ({@code GeyserPlumeParticle}). */
+	private static final int PLUME_PER_WATER_BLOCK = 5;
+	/** Java's eruption bursts its poof every ten ticks ({@code GeyserEruptionParticle}). */
+	private static final int POOF_TICKS = 10;
 	/** Java's radius for a waiting cloud's particles. */
 	private static final double WAITING_RADIUS = 0.2;
 	/** Inferred: the active time of each start of a cloud's effect, one tick. */
@@ -198,6 +212,33 @@ public final class SiteEffects {
 			ParticleSystem.get().spawn(effect, cloud.getX(), cloud.getY(), cloud.getZ(), null, vars);
 		}
 		return true;
+	}
+
+	/** Whether Java's geyser eruption particles are left to {@link #geyser}. */
+	public static boolean replacesGeyser() {
+		return ParticleSystem.get().siteEffect(GEYSER_PLUME) != null;
+	}
+
+	/**
+	 * One tick of Java's geyser eruption ({@code GeyserEruptionParticle}) at its {@code age} after the tick, of
+	 * {@code lifetime} ticks, over {@code waterBlocks} of water.
+	 */
+	public static void geyser(int age, int lifetime, int waterBlocks, double x, double y, double z) {
+		Variables vars = new Variables();
+		vars.set("plume_height", (double) PLUME_PER_WATER_BLOCK * Math.max(1, waterBlocks));
+		vars.set("active_time", lifetime / 20.0);
+		if (age == 1) {
+			for (String site : new String[] {GEYSER_BASE, GEYSER_PLUME}) {
+				String effect = ParticleSystem.get().siteEffect(site);
+				if (effect != null) {
+					ParticleSystem.get().spawn(effect, x, y, z, null, vars);
+				}
+			}
+		}
+		String poof = ParticleSystem.get().siteEffect(GEYSER_POOF);
+		if (poof != null && age % POOF_TICKS == 0) {
+			ParticleSystem.get().spawn(poof, x, y, z, null, vars);
+		}
 	}
 
 	private static boolean spawnColored(String site, ParticleOptions options, double x, double y, double z) {

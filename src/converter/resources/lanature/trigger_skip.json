@@ -1,6 +1,3 @@
 {
-	"//": "Java particle types the pack's effect cannot replace: the Bedrock effect reads state the Java particle does not carry.",
-	"minecraft:geyser_base": "Bedrock reads the geyser's active_time and plume_height, which a Java particle does not carry",
-	"minecraft:geyser_plume": "Bedrock reads the geyser's active_time and plume_height, which a Java particle does not carry",
-	"minecraft:geyser_poof": "Bedrock reads the geyser's plume_height, which a Java particle does not carry"
+	"//": "Java particle types the pack's effect cannot replace: the Bedrock effect reads state the Java particle does not carry. None at present (the geyser's effects are sites, started with the eruption's plume height)."
 }

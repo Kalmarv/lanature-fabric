@@ -139,7 +139,7 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   engine starts an effect itself (Java spawns a burst there, or Bedrock gives one Java type's uses to different
   effects): each site's effect, kept under `sites` when the pack defines it, and the Java types it takes over, which
   never map particle by particle. Types in `trigger_skip.json` (the effect reads state the Java particle lacks) stay
-  vanilla.
+  vanilla; it lists none at present.
 
 ## Runtime
 
@@ -191,6 +191,13 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
     count over the cloud each tick, so (inferred) it starts each tick Java spawns them, with a multiplier of 1,
     Java's radius (0.2 while the cloud waits) and an active time of one tick. Java's other `entity_effect` and
     `effect` particles (an evoker's spell, a stunned ravager, a raid bell, the wither, a brown mooshroom) stay Java's.
+  * `geyser_base`, `geyser_plume` and `geyser_poof` for a potent sulfur eruption. Java's `geyser` particle, renewed
+    every 20 ticks while the geyser erupts, lives 20 ticks and spawns base particles every other tick, plume particles
+    each tick and a burst of poof every 10; Bedrock's base and plume are emitters that run for `v.active_time` and
+    scale with `v.plume_height`. They start when the eruption particle first ticks, active for its life, and a poof
+    where Java bursts its own; Java's base, plume and poof particles are not spawned. `v.plume_height` is Java's plume
+    height, 5 blocks per block of water over the sulfur (the pack sizes its plume particles by
+    `2 + plume_height / 8`, as Java's plume does by its height; inferred).
 
   Effects that draw a block's or an item's picture get its UVs in Java's atlas (`v.emitter_texture_coordinate`/`size`,
   `v.surface_particle_texture_*`, `v.EmitterTextureCoord`/`Size`) and Java's terrain particle colour (0.6 grey times
@@ -405,16 +412,21 @@ The repository holds no assets from the pack: the build reads a downloaded `.mcp
   * Birch and spruce leaves take their tint from the `birch` and `evergreen` maps where the pack replaces them
     (`bedrock/engine/colormaps.json`: the engine applies these maps; no data file names them), blended over nearby
     biomes like Java's foliage; otherwise, and for blocks drawn out of the world, the tint the game had for them.
-  * Water transparency (`WaterOpacity`, a `FluidRenderer` mixin): the pack's water surface opacity (its legacy
-    `water_surface_transparency`, an opacity despite the name, or a client biome's `surface_opacity`) over vanilla's
-    for the same biome, as vanilla's stands for Java's water, scales the alpha of Java's water tint, averaged over
-    nearby biomes like the water colour; Java's terrain shader multiplies its water texture's alpha (180) by it.
+  * Water transparency (`WaterOpacity`, a `FluidRenderer` mixin, `WaterSprites`): the pack's water surface opacity
+    (its legacy `water_surface_transparency`, an opacity despite the name, or a client biome's `surface_opacity`) over
+    vanilla's for the same biome, as vanilla's stands for Java's water, is the share of Java's water opacity kept,
+    averaged over nearby biomes like the water colour. Water is drawn from copies of Java's still, flowing and overlay
+    water sprites whose alpha is divided by their top alpha (Java's 180), so they reach full opacity
+    (`lanature:alpha_normalised`, an atlas sprite source in `minecraft:atlases/blocks.json`, with the originals'
+    animation; Fabric's fluid rendering registry gives water these sprites, still translucent). The alpha of the
+    water's tint is the opacity, Java's top alpha times the share, up to full: Java's water exactly at a share of 1,
+    and above Java's where the pack's water is more opaque than vanilla's.
     Vanilla's is what the game reads now: since 1.21.40 not its own `biomes_client.json`, only its client biomes
     (`surface_opacity` 0.65 in swamps, 0.55 in warm oceans, `bedrock/vanilla/biomes/`), the rest taken to be the old
     file's default 0.65 (`bedrock/vanilla/biomes_client.json`; inferred). The pack's own legacy file is still read.
     Its default 0.35 leaves 54% of Java's opacity in most biomes, its taigas' 0.6 92%, its warm oceans' 0.35 64%.
-    Its swamps' 1.0 is above vanilla's 0.65; a share above 1 cannot raise Java's texture alpha through the tint, so
-    swamps draw at Java's opacity (not reproduced). The ratio reading is inferred.
+    Its swamps' 1.0 over vanilla's 0.65 is a share of 1.54, which takes 180 past 255: swamp water is opaque. The ratio
+    reading is inferred.
   * Water fog coming in (`WaterFogEnvironmentMixin`): the water fog's `transition_fog` moves its distances from its
     `init_fog` to its own by a progress rising to `mid_percent` at `mid_seconds`, then to 1 at `max_seconds`, never
     under `min_percent`, over Java's time under water (`waterVisionTime`). Vanilla Bedrock's water fogs all use

@@ -808,6 +808,25 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			context.takeScreenshot("lanature-villagers-" + shot[0] + "-java");
 			context.runOnClient(mc -> EntityScripts.get().setModels(true));
 		}
+		// the pack's baby model setting: its own (an adult shrunk), Bedrock's baby model, and the old vanilla baby
+		Object babyModel = context.computeOnClient(mc -> PackSettings.get().value("lnbc:baby_mob_model"));
+		for (String option : new String[] {"lnbc", "vanilla", "legacy_vanilla"}) {
+			context.runOnClient(mc -> PackSettings.get().set("lnbc:baby_mob_model", option));
+			server.runCommand("tp @p 297.5 100.0 6.7 180 10");
+			context.waitTicks(10);
+			String babies = context.computeOnClient(mc -> {
+				StringBuilder sb = new StringBuilder();
+				for (net.minecraft.world.entity.Entity e : mc.level.entitiesForRendering()) {
+					if (e instanceof net.minecraft.world.entity.npc.villager.Villager v && v.isBaby()) {
+						sb.append("\n  ").append(v.getVillagerData().type().getRegisteredName()).append(": ").append(describe(EntityScripts.get().model(e, 1)));
+					}
+				}
+				return sb.toString();
+			});
+			LOGGER.info("Baby villagers with baby_mob_model {}: {}", option, babies);
+			context.takeScreenshot("lanature-villagers-babies-" + option);
+		}
+		context.runOnClient(mc -> PackSettings.get().set("lnbc:baby_mob_model", babyModel));
 		// close-ups (x, z, from behind): the snow armorer (level 5 badge), the swamp unskilled, a baby, Steve,
 		// LaCarotteRebel and his cape
 		for (double[] c : new double[][] {{298.5, -2.5, 0}, {302.5, -2.5, 0}, {296.5, 4.5, 0}, {300.5, 4.5, 0}, {306.5, 4.5, 0},
@@ -941,6 +960,41 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 		context.takeScreenshot("lanature-environment-snow");
 		server.runCommand("weather clear");
 		water(context, server, world);
+		geyser(context, server, world);
+	}
+
+	/**
+	 * A continuous potent sulfur geyser (lava under the sulfur, two blocks of water over it): the pack's geyser effects
+	 * started for Java's eruption, with their plume height, logged and shot from the side.
+	 */
+	private static void geyser(ClientGameTestContext context, TestServerContext server, TestSingleplayerContext world) {
+		// west of the pool, on a stone floor at 97 with the glass-walled shaft in it
+		server.runCommand("tp @p -14.5 98 -2.5 180 5");
+		context.waitTicks(40);
+		world.getConnection().waitForChunksRender();
+		server.runCommand("fill -22 90 -16 -8 112 6 minecraft:air");
+		server.runCommand("fill -22 97 -16 -8 97 6 minecraft:stone");
+		server.runCommand("fill -16 92 -10 -14 97 -8 minecraft:glass");
+		server.runCommand("setblock -15 94 -9 minecraft:lava");
+		server.runCommand("setblock -15 95 -9 minecraft:potent_sulfur");
+		server.runCommand("fill -15 96 -9 -15 97 -9 minecraft:water");
+		server.runCommand("tp @p -14.5 98 4.5 180 -20");
+		world.getConnection().waitForChunksRender();
+		context.waitTicks(60);
+		String state = context.computeOnClient(mc -> mc.level.getBlockState(new net.minecraft.core.BlockPos(-15, 95, -9)).toString());
+		LOGGER.info("Geyser block {}", state);
+		for (int shot = 0; shot < 3; shot++) {
+			context.waitTicks(7);
+			String counts = context.computeOnClient(mc -> {
+				StringBuilder sb = new StringBuilder();
+				for (String fx : new String[] {"minecraft:geyser_base", "minecraft:geyser_plume", "minecraft:geyser_poof"}) {
+					sb.append(fx).append(' ').append(ParticleSystem.get().emitterCount(fx)).append('/').append(ParticleSystem.get().particleCount(fx)).append("; ");
+				}
+				return sb.append("busiest ").append(ParticleSystem.get().busiest(6)).toString();
+			});
+			LOGGER.info("Geyser effects: {}", counts);
+			context.takeScreenshot("lanature-geyser-" + shot);
+		}
 	}
 
 	/**
@@ -987,7 +1041,9 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 		context.waitTicks(10);
 		context.runOnClient(mc -> mc.levelExtractor.allChanged());
 		world.getConnection().waitForChunksRender();
-		// under water, looking along the pool
+		// under water, looking along the pool; water breathing (which Java's water vision does not read) keeps the
+		// player from drowning in the 30 seconds
+		server.runCommand("effect give @p minecraft:water_breathing infinite 0 true");
 		server.runCommand("tp @p 0.5 95 16.5 180 0");
 		int waited = 0;
 		for (int ticks : new int[] {20, 60, 100, 200, 300, 400, 600}) {
@@ -1004,6 +1060,7 @@ public final class LaNatureGameTest implements FabricClientGameTest {
 			}
 		}
 		server.runCommand("tp @p -0.5 103 20.5 180 34");
+		server.runCommand("effect clear @p minecraft:water_breathing");
 	}
 
 	/** Breaks, cracks and item breaks drawn by the pack's effects from the blocks' and items' own pictures. */

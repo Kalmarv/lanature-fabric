@@ -1,0 +1,12 @@
+{
+	"sources": [
+		{
+			"type": "lanature:alpha_normalised",
+			"textures": {
+				"minecraft:block/water_still": "lanature:block/water_still_full",
+				"minecraft:block/water_flow": "lanature:block/water_flow_full",
+				"minecraft:block/water_overlay": "lanature:block/water_overlay_full"
+			}
+		}
+	]
+}

@@ -49,5 +49,20 @@
 		"effect": "minecraft:mobspell_lingering",
 		"replaces": [],
 		"reason": "Bedrock starts mobspell_lingering for a lingering potion's cloud; Java spawns its entity_effect particles over the cloud each tick"
+	},
+	"geyser_base": {
+		"effect": "minecraft:geyser_base",
+		"replaces": ["minecraft:geyser_base"],
+		"reason": "Bedrock starts geyser_base once per eruption, an emitter running for its active_time at its plume_height; Java's eruption particle spawns two base particles every other tick"
+	},
+	"geyser_plume": {
+		"effect": "minecraft:geyser_plume",
+		"replaces": ["minecraft:geyser_plume"],
+		"reason": "Bedrock starts geyser_plume once per eruption, an emitter running for its active_time at its plume_height; Java's eruption particle spawns water_blocks + 2 plume particles each tick"
+	},
+	"geyser_poof": {
+		"effect": "minecraft:geyser_poof",
+		"replaces": ["minecraft:geyser_poof"],
+		"reason": "Bedrock's geyser_poof is one burst at a plume_height; Java's eruption particle bursts 20 poof particles every 10 ticks"
 	}
 }
